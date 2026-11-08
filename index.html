@@ -184,6 +184,40 @@
   .pcand { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 6px 0; font-size: 14px; color: var(--text); }
   .pcand.on { border: 2px solid var(--navy); background: #EEF3F8; }
   .pcand .exp { color: #B42318; font-size: 13px; }
+  .pcand.expd { background: #F4F4F2; color: #8A8F96; }
+  .chip.exp { background: #FDECEA; color: #B42318; margin-left: 6px; }
+  .linkbtn { border: none; background: transparent; color: var(--blue); font-weight: 700; font-size: 14px; padding: 8px 0; }
+  /* カレンダー */
+  .calhead { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 10px; }
+  .calhead b { font-size: 19px; }
+  .calhead button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font-size: 16px; color: var(--navy); }
+  .calhead .thism { font-size: 13px; padding: 8px 10px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal .wd { text-align: center; font-size: 12px; color: var(--sub); padding: 2px 0; }
+  .cal .wd.sun, .cal .dc.sun .dn { color: #B42318; } .cal .wd.sat, .cal .dc.sat .dn { color: #2563A8; }
+  .cal .dc { background: #fff; border: 1px solid var(--line); border-radius: 8px; min-height: 58px; padding: 3px 3px 4px; text-align: left; font: inherit; color: var(--text); display: flex; flex-direction: column; gap: 2px; }
+  .cal .dc.empty { background: transparent; border: none; }
+  .cal .dc.today { border: 2px solid #F28C28; }
+  .cal .dc.sel { background: #EEF3F8; border-color: var(--navy); }
+  .cal .dn { font-size: 13px; font-weight: 700; }
+  .cal .bars { display: flex; flex-direction: column; gap: 2px; }
+  .cal .bar { height: 5px; border-radius: 3px; }
+  .cal .more { font-size: 10px; color: var(--sub); }
+  .cal .cnt { margin-left: auto; font-size: 11px; color: var(--sub); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
+  .legend i { display: inline-block; width: 12px; height: 6px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .card .sbar { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  /* 在庫の一目表 */
+  .board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+  .bcell { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .bcell .g { font-size: 15px; font-weight: 800; color: var(--navy); }
+  .bcell .v { font-size: 30px; font-weight: 800; color: var(--navy); line-height: 1.1; }
+  .bcell .v small { font-size: 14px; font-weight: 700; margin-left: 2px; }
+  .bcell .v.low { color: #B42318; }
+  .bcell .w { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .bcell .u { font-size: 12px; color: var(--text); margin-top: 4px; font-weight: 700; }
+  .bcell.new { border-color: #F28C28; }
+  .bcell.new .g, .bcell.new .v { color: #C2410C; }
   .sheet p { white-space: pre-wrap; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(243,244,241,.7); z-index: 40; font-size: 15px; color: var(--sub); }
 </style>
@@ -209,7 +243,7 @@
     <button id="reload">更新</button>
   </header>
   <main id="main"></main>
-  <nav class="tabbar"><button data-nav="#/list">修理</button><button data-nav="#/inv">在庫</button><button data-nav="#/me">マイページ</button></nav>
+  <nav class="tabbar"><button data-nav="#/list">修理</button><button data-nav="#/cal">予定</button><button data-nav="#/inv">在庫</button><button data-nav="#/me">マイページ</button></nav>
 </div>
 
 <div id="loading" class="hidden">読み込み中…</div>
@@ -333,7 +367,7 @@
   $('back').addEventListener('click', function () { location.hash = backTo || '#/list'; });
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0) route(); else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0) route(); else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -349,8 +383,74 @@
     else if (h === '#/inv/insp') openInspect(false);
     else if (h === '#/inv/stock') openInspect(true);
     else if (h === '#/new') openNew();
+    else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
   }
+
+  // ---- 予定（カレンダー） ----
+  var calData = null, calSel = 0;
+  var STORE_COLOR = { '苅田': '#1B2A3A', '行橋': '#1B2A3A', 'インター': '#2563A8', '大橋': '#2563A8', '出張': '#F28C28', '営業': '#2E7D4F' };
+  function calColor(o) { return o.kind === '再修理' ? '#B42318' : (STORE_COLOR[o.store] || '#8A8F96'); }
+  function openCal(ym) {
+    setNav('#/cal', '');
+    $('title').textContent = '予定';
+    if (!ym && calData) ym = calData.y + '-' + calData.m;
+    loading(true);
+    call('cal', { ym: ym || '' }).then(function (d) {
+      if (!calData || calData.y !== d.y || calData.m !== d.m) calSel = d.today || 0;
+      calData = d; renderCal();
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function calShift(n) {
+    var y = calData.y, m = calData.m + n;
+    if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+    var ym = y + '-' + (m < 10 ? '0' : '') + m;
+    if (n < 0 && ym < calData.min) { toast('これより前の月は見られません（今年度と前年度だけ）'); return; }
+    location.hash = '#/cal/' + ym;
+  }
+  function renderCal() {
+    var d = calData;
+    var first = new Date(d.y, d.m - 1, 1).getDay(), last = new Date(d.y, d.m, 0).getDate();
+    var html = '<div class="calhead"><button type="button" data-calm="-1">◀</button><b>' + d.y + '年' + d.m + '月</b>' +
+      '<span><button type="button" class="thism" data-calm="0">今月</button> <button type="button" data-calm="1">▶</button></span></div>';
+    html += '<div class="cal">' + ['日', '月', '火', '水', '木', '金', '土'].map(function (w, i) { return '<div class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</div>'; }).join('');
+    for (var i = 0; i < first; i++) html += '<div class="dc empty"></div>';
+    for (var day = 1; day <= last; day++) {
+      var list = d.days[day] || [], wd = (first + day - 1) % 7;
+      html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === calSel ? ' sel' : '') + '" data-cald="' + day + '">' +
+        '<span style="display:flex"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '</span>' : '') + '</span><span class="bars">' +
+        list.slice(0, 4).map(function (o) { return '<span class="bar" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.35' : '') + '"></span>'; }).join('') +
+        (list.length > 4 ? '<span class="more">＋' + (list.length - 4) + '</span>' : '') + '</span></button>';
+    }
+    html += '</div>';
+    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>薄い色＝完了</span></div>';
+    html += '<div class="note">この月 ' + d.count + ' 件</div>';
+    if (calSel) {
+      var sel = d.days[calSel] || [];
+      var dt = new Date(d.y, d.m - 1, calSel);
+      html += '<div class="h2">' + d.m + '/' + calSel + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')　' + sel.length + '件</div>';
+      html += sel.length ? sel.map(function (o) {
+        var full = o.pct >= 100;
+        return '<div class="card tap" data-key="' + esc(o.key) + '">' +
+          '<div class="row1"><span class="no"><span class="sbar" style="background:' + calColor(o) + '"></span>' + esc(o.no) + '</span><span class="date">' + esc(o.time) + '</span></div>' +
+          '<div class="name">' + esc(o.name) + '</div>' +
+          '<div class="meta">' + esc([o.model, o.grade, o.store, o.kubun].filter(Boolean).join('・')) + '</div>' +
+          '<div class="chips"><span class="chip kind">' + esc(o.kind) + '</span>' + (o.state ? '<span class="chip ' + (full ? 'done' : 'state') + '">' + esc(o.state) + '</span>' : '') + '</div>' +
+          '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + Math.min(100, o.pct) + '%"></div></div><div class="pct">' + o.pct + '%</div></div>';
+      }).join('') : '<div class="empty">この日の修理はありません</div>';
+    }
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash.indexOf('#/cal') !== 0 || !calData) return;
+    var t;
+    if ((t = e.target.closest('[data-calm]'))) {
+      var n = Number(t.getAttribute('data-calm'));
+      if (n === 0) { location.hash = '#/cal/' + new Date().getFullYear() + '-' + (new Date().getMonth() + 1); return; }
+      calShift(n); return;
+    }
+    if ((t = e.target.closest('[data-cald]'))) { calSel = Number(t.getAttribute('data-cald')); renderCal(); return; }
+  });
 
   // ---- 一覧 ----
   var TABS = [['today', '今日'], ['upcoming', 'これから'], ['open', '進行中'], ['recent', '最近の完了']];
@@ -786,7 +886,18 @@
   }
   function renderInv() {
     var d = invData;
-    var html = '<div class="tiles">' +
+    var item = function (id) { var x = d.items.filter(function (i) { return i.id === id; })[0]; return x ? x.count : 0; };
+    var html = '<div class="h2" style="margin-top:4px">すぐ使える在庫（検査済）</div><div class="board">' + (d.board || []).map(function (b) {
+      var u28 = Math.floor(b.stock / 28), u20 = Math.floor(b.stock / 20);
+      return '<div class="bcell"><div class="g">' + esc(b.grade) + '</div><div class="v' + (b.stock < 20 ? ' low' : '') + '">' + b.stock + '<small>本</small></div>' +
+        '<div class="w">2年 ' + (b.w['2年'] || 0) + '・1年 ' + (b.w['1年'] || 0) + '・半年 ' + (b.w['半年'] || 0) + '</div>' +
+        '<div class="u">28本で' + u28 + '台・20本で' + u20 + '台分</div>' +
+        ((b.charging || b.assembled) ? '<div class="w">充電中 ' + b.charging + '・組立済 ' + b.assembled + '</div>' : '') + '</div>';
+    }).join('') +
+      '<div class="bcell new"><div class="g">新品棚</div><div class="v">' + item('NEW-MOD') + '<small>本</small></div><div class="w">新品ユニット ' + item('NEW-UNIT') + '台</div></div>' +
+      '<div class="bcell"><div class="g">検査待ち</div><div class="v">' + d.waitInspect + '<small>本</small></div><div class="w">分解待ち ' + d.measure.length + '台・回収待ち ' + d.collect.length + '台</div></div>' +
+      '</div><div class="note">赤い数字は20本（1台分）未満です</div>';
+    html += '<div class="tiles">' +
       '<div class="tile"><div class="v">' + d.usable + '<small>本</small></div><div class="k">使える在庫（検査済）</div></div>' +
       '<div class="tile"><div class="v">' + d.waitInspect + '<small>本</small></div><div class="k">検査待ちのモジュール</div></div>' +
       '<div class="tile"><div class="v">' + d.collect.length + '<small>台</small></div><div class="k">回収待ち（戻り）</div></div>' +
@@ -956,9 +1067,9 @@
   // ============================================================
   // 新しい受注の登録
   // ============================================================
-  var nf = null, nForm = null, nResult = null, nLookT = null, nLookSeq = 0;
+  var nf = null, nForm = null, nResult = null, nLookT = null, nLookSeq = 0, nFindT = null, nIdx = null, nIdxAt = 0;
   function nfReset() {
-    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null };
+    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false };
   }
   function openNew() {
     setNav('#/list', '#/list');
@@ -967,6 +1078,7 @@
     nfReset();
     loading(true);
     call('newForm').then(function (d) { nForm = d; renderNew(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+    nIdxLoad();
   }
   function nSeg(name, opts, cur) {
     return '<div class="seg" data-nseg="' + name + '">' + opts.map(function (o) { return '<button type="button" data-v="' + esc(o) + '"' + (cur === o ? ' class="on"' : '') + '>' + esc(o) + '</button>'; }).join('') + '</div>';
@@ -985,6 +1097,7 @@
     var html = '';
     html += '<div class="lbl2">種類</div>' + nSeg('kind', d.kinds.map(function (x) { return x.name; }), nf.kind);
     html += '<div class="note" id="nNext">登録すると <b>' + esc(d.next[k.prefix] || (k.prefix + '?')) + '</b> になります（目安）</div>';
+    html += '<label class="f" for="nFind" id="nFindLbl">お客様を探す（業者様・リピートの方）</label><input class="f" id="nFind" type="search" autocomplete="off" placeholder="名前の一部・電話番号（例：林、0902961）"><div id="nFindRes"></div>';
     html += '<label class="f" for="nTel">電話番号</label><input class="f" id="nTel" type="tel" inputmode="tel" autocomplete="off" placeholder="090-1234-5678">';
     html += '<div id="nLook"></div>';
     html += '<div data-only="re"><div class="lbl2">元の修理 <span class="req">必須</span>（電話番号を入れると候補が出ます）</div><div id="nParentList"></div>' +
@@ -1017,6 +1130,7 @@
     $('nAmount').addEventListener('input', function () { if (String(this.value) !== String(nf.autoAmount)) nf.autoAmount = null; });
     $('nHold').addEventListener('change', function () { $('nDate').disabled = this.checked; });
     $('nParentNo').addEventListener('input', function () { if (this.value.trim()) { nf.parentKey = ''; nf.parent = null; nRenderParents(); } });
+    $('nFind').addEventListener('input', function () { clearTimeout(nFindT); nFindT = setTimeout(nFindRender, 150); });
     nApplyKind();
     nPrice();
   }
@@ -1068,6 +1182,7 @@
     if (tel.length < 10 || tel === nf.lookTel) { if (tel.length < 10) { nf.look = null; nf.lookTel = ''; $('nLook').innerHTML = ''; nRenderParents(); } return; }
     nf.lookTel = tel;
     var seq = ++nLookSeq;
+    if (nIdx) { nf.look = nLocalLook(tel); renderLook(nf.look); return; }
     $('nLook').innerHTML = '<div class="note">過去の受注を探しています…</div>';
     call('newLookup', { phone: tel }).then(function (r) {
       if (seq !== nLookSeq) return;
@@ -1075,29 +1190,132 @@
       renderLook(r);
     }).catch(function (e) { if (seq === nLookSeq) $('nLook').innerHTML = '<div class="note">' + esc(e.message) + '</div>'; });
   }
+  // ---- お客様の検索（名前の一部・電話番号） ----
+  function nIdxLoad() {
+    if (nIdx && Date.now() - nIdxAt < 5 * 60 * 1000) return;
+    call('newIndex').then(function (d) {
+      var today = d.today;
+      nIdx = d.rows.map(function (r) {
+        var o = {}; d.cols.forEach(function (c, i) { o[c] = r[i]; });
+        o.cancel = !!o.cancel; o.isRe = !!o.isRe;
+        // 保証期限日がまだ入っていない受注は、修理日とグレードから目安を出す
+        if ((o.w === null || o.w === undefined) && o.d !== null && W_MONTHS[o.grade]) {
+          var dt = new Date(o.d); dt.setMonth(dt.getMonth() + W_MONTHS[o.grade]);
+          o.w = dt.getTime(); o.warranty = dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '（目安）';
+        }
+        o.expired = o.w !== null && o.w !== undefined && o.w < today;
+        o.dup = !o.cancel && (o.d === null || (o.d >= today - 14 * 86400000 && o.d <= today + 120 * 86400000));
+        o.tel = nDigits(o.phone); o.nn = nNorm(o.name);
+        return o;
+      });
+      nIdxAt = Date.now();
+      if (location.hash === '#/new' && $('nFind') && $('nFind').value) nFindRender();
+    }).catch(function () { /* 検索が使えないだけ。電話番号はサーバーで探す */ });
+  }
+  var W_MONTHS = { '半年保証': 6, 'トライアル': 6, 'スタンダード': 12, 'プレミア': 24, 'プレミアム': 24, '新品': 24 };
+  // 再修理の元の修理にできる受注（その他＝A番号・保証なし・キャンセル・再修理は除く）
+  function nCanParent(o) { return !o.isRe && !o.cancel && o.no && !/^A\d/i.test(o.no) && o.grade !== '保証なし' && o.date !== '保留'; }
+  function nNorm(v) {
+    return String(v || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); })
+      .replace(/[\s　・･.,、。()（）]/g, '').toLowerCase();
+  }
+  function nByDate(a, b) { return (b.d === null ? 9e15 : b.d) - (a.d === null ? 9e15 : a.d); }
+  function nLocalLook(tel) {
+    var orders = nIdx.filter(function (o) { return o.tel && o.tel === tel; }).sort(nByDate);
+    var base = orders.filter(function (o) { return !o.cancel && o.name; })[0] || orders[0] || null;
+    return { customer: base ? { name: base.name, sex: base.sex, birth: base.birth, zip: base.zip, address: base.address, model: base.model } : null, orders: orders.slice(0, 12) };
+  }
+  function nMatch(q) {
+    var digits = nDigits(q), words = String(q).split(/[\s　]+/).map(nNorm).filter(Boolean);
+    var byTel = digits.length >= 3 && digits.length >= nNorm(q).length - 1;
+    return nIdx.filter(function (o) {
+      if (byTel) return o.tel.indexOf(digits) >= 0;
+      return words.length && words.every(function (w) { return o.nn.indexOf(w) >= 0; });
+    });
+  }
+  var nCusList = [];
+  function nFindRender() {
+    var box = $('nFindRes'); if (!box) return;
+    var q = nVal('nFind');
+    if (!q) { box.innerHTML = ''; return; }
+    if (!nIdx) { box.innerHTML = '<div class="note">お客様の一覧を読み込み中です…</div>'; nIdxLoad(); return; }
+    var hits = nMatch(q);
+    if (nf.kind === '再修理') {
+      var list = hits.filter(function (o) { return nCanParent(o) && o.d !== null; });
+      box.innerHTML = list.length ? '<div class="note">元の修理を選んでください（保証期限内を先に表示）</div>' + nParentButtons(list, true) : '<div class="note">見つかりません</div>';
+      return;
+    }
+    // お客様ごと（名前＋電話番号）にまとめて、新しい順に
+    var groups = {}, order = [];
+    hits.slice().sort(nByDate).forEach(function (o) {
+      if (o.cancel && !o.name) return;
+      var k = o.nn + '|' + o.tel;
+      if (!groups[k]) { groups[k] = { last: o, n: 0 }; order.push(k); }
+      groups[k].n++;
+    });
+    nCusList = order.slice(0, 20).map(function (k) { return groups[k]; });
+    box.innerHTML = nCusList.length ? nCusList.map(function (g, i) {
+      var o = g.last;
+      return '<button type="button" class="pcand" data-ncus="' + i + '"><b>' + esc(o.name) + '</b>' + (o.store === '営業' ? '<span class="chip kind" style="margin-left:6px">業者</span>' : '') +
+        '<br><span class="meta">' + esc([o.phone, o.address].filter(Boolean).join('　')) + '</span>' +
+        '<br><span class="meta">前回 ' + esc([o.no, o.date, o.model, o.grade].filter(Boolean).join('　')) + (g.n > 1 ? '　ほか' + (g.n - 1) + '件' : '') + '</span></button>';
+    }).join('') + (order.length > 20 ? '<div class="note">ほかに ' + (order.length - 20) + ' 件。もう少し詳しく入れてください</div>' : '')
+      : '<div class="note">見つかりません（新しいお客様）</div>';
+  }
+  // 再修理の元の修理の候補：保証期限内を先に、期限切れはたたんでおく
+  function nParentButtons(list, fromFind) {
+    var ok = list.filter(function (o) { return !o.expired; }).sort(nByDate), ex = list.filter(function (o) { return o.expired; }).sort(nByDate);
+    var btn = function (o) {
+      return '<button type="button" class="pcand' + (nf.parentKey === o.key ? ' on' : '') + (o.expired ? ' expd' : '') + '" data-npar="' + esc(o.key) + '"><b>' + esc(o.no) + '</b>　' + esc(o.date) +
+        (o.expired ? '<span class="chip exp">期限切れ</span>' : '') + (fromFind ? '<br>' + esc(o.name) : '') + '　' + esc([o.model, o.grade].filter(Boolean).join('・')) +
+        '<br><span class="' + (o.expired ? 'exp' : 'meta') + '">' + (o.warranty ? '保証期限 ' + esc(o.warranty) : '保証期限の記入なし') + '</span></button>';
+    };
+    var html = ok.slice(0, 15).map(btn).join('');
+    if (!ok.length) html += '<div class="note">保証期限内の修理はありません</div>';
+    if (ex.length) {
+      html += '<button type="button" class="linkbtn" data-nexp="1">' + (nf.showExpired ? '期限切れを隠す' : '期限切れも表示（' + ex.length + '件）') + '</button>';
+      if (nf.showExpired) html += ex.slice(0, 15).map(btn).join('');
+    }
+    return html;
+  }
+  function nPickCustomer(i) {
+    var g = nCusList[i]; if (!g) return;
+    var o = g.last;
+    var set = function (id, v) { var el = $(id); if (el && v) el.value = v; };
+    set('nName', o.name); set('nTel', o.phone); set('nZip', o.zip); set('nAddr', o.address); set('nBirth', o.birth);
+    if (!nVal('nModel')) set('nModel', o.model);
+    if (o.sex && nForm.sex.indexOf(o.sex) >= 0) { nf.sex = o.sex; nSetSeg('sex', o.sex); }
+    if (o.store === '営業') { nf.store = '営業'; nSetSeg('store', '営業'); nAutoKubun(); }
+    $('nFind').value = ''; $('nFindRes').innerHTML = '<div class="okmsg">「' + esc(o.name) + '」の内容を入れました</div>';
+    var tel = nDigits(o.phone);
+    if (tel.length >= 10) { nf.lookTel = tel; nf.look = nLocalLook(tel); renderLook(nf.look); }
+    nPrice();
+  }
+
   function nApplyKind() {
     var re = nf.kind === '再修理';
     Array.prototype.forEach.call(document.querySelectorAll('[data-only="re"]'), function (el) { el.classList.toggle('hidden', !re); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-not="re"]'), function (el) { el.classList.toggle('hidden', re); });
+    var l = $('nFindLbl'); if (l) l.textContent = re ? '元の修理を探す（お名前の一部・電話番号）' : 'お客様を探す（業者様・リピートの方）';
   }
   // 再修理：元の修理の候補（電話番号で見つかった、再修理でもキャンセルでもない受注）
   function nParents() {
-    return (nf.look ? nf.look.orders : []).filter(function (o) { return !o.isRe && !o.cancel && o.no && o.date !== '保留'; });
+    return (nf.look ? nf.look.orders : []).filter(nCanParent);
   }
   function nRenderParents() {
     var box = $('nParentList'); if (!box) return;
     var list = nParents();
-    box.innerHTML = list.length ? list.map(function (o) {
-      return '<button type="button" class="pcand' + (nf.parentKey === o.key ? ' on' : '') + '" data-npar="' + esc(o.key) + '"><b>' + esc(o.no) + '</b>　' + esc(o.date) + '　' + esc([o.model, o.grade].filter(Boolean).join('・')) +
-        '<br><span class="' + (o.expired ? 'exp' : 'meta') + '">' + (o.warranty ? '保証期限 ' + esc(o.warranty) + (o.expired ? '（切れています）' : '') : '保証期限の記入なし') + '</span></button>';
-    }).join('') : (nf.look ? '<div class="note">この電話番号の修理が見つかりません。下に修理＃を入れてください</div>' : '');
+    box.innerHTML = list.length ? nParentButtons(list, false) : (nf.look ? '<div class="note">この電話番号の修理が見つかりません。上の「お客様を探す」で名前でも探せます</div>' : '');
     var sel = $('nParentSel');
     if (sel) sel.innerHTML = nf.parent && nf.parent.expired ? '<div class="warnbox">保証期限が切れています。有料の修理なら「修理」で登録してください</div>' : '';
   }
   function nPickParent(key) {
-    var o = nParents().filter(function (x) { return x.key === key; })[0]; if (!o) return;
+    var o = nParents().filter(function (x) { return x.key === key; })[0] || (nIdx || []).filter(function (x) { return x.key === key; })[0]; if (!o) return;
     nf.parentKey = key; nf.parent = o;
     $('nParentNo').value = '';
+    if (!nVal('nTel') && o.phone) { $('nTel').value = o.phone; }
+    var tel = nDigits(o.phone); if (tel.length >= 10 && tel !== nf.lookTel && nIdx) { nf.lookTel = tel; nf.look = nLocalLook(tel); renderLook(nf.look); }
+    nFindRender();
     var put = function (id, v) { var el = $(id); if (el && !String(el.value).trim() && v) el.value = v; };
     put('nName', o.name); put('nModel', o.model);
     if (!nf.grade && o.grade && nForm.grades.indexOf(o.grade) >= 0) { nf.grade = o.grade; nSetSeg('grade', o.grade); }
@@ -1173,7 +1391,7 @@
         var after = nKind();
         var c = $('nContent'); if (c && (!c.value || c.value === before.content)) c.value = after.content;
         $('nNext').innerHTML = '登録すると <b>' + esc(nForm.next[after.prefix] || (after.prefix + '?')) + '</b> になります（目安）';
-        nSetSeg('kind', v); nApplyKind(); if (nf.look) renderLook(nf.look); nPrice(); return;
+        nSetSeg('kind', v); nApplyKind(); if (nf.look) renderLook(nf.look); nFindRender(); nPrice(); return;
       }
       if (name === 'payment' || name === 'grade' || name === 'sex') v = (nf[name] === v ? '' : v); // もう一度押すと外れる
       nf[name] = v;
@@ -1184,6 +1402,8 @@
       return;
     }
     if ((t = e.target.closest('[data-npar]'))) { nPickParent(t.getAttribute('data-npar')); return; }
+    if ((t = e.target.closest('[data-ncus]'))) { nPickCustomer(Number(t.getAttribute('data-ncus'))); return; }
+    if ((t = e.target.closest('[data-nexp]'))) { nf.showExpired = !nf.showExpired; nFindRender(); nRenderParents(); return; }
     if ((t = e.target.closest('[data-nprice]'))) { var p = t.getAttribute('data-nprice'); $('nAmount').value = p; nf.autoAmount = Number(p); return; }
     if ((t = e.target.closest('#nSave'))) { nSave(false); return; }
     if ((t = e.target.closest('[data-nagain]'))) { nResult = null; openNew(); return; }
