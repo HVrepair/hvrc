@@ -134,6 +134,13 @@
   .panel { background: #F7F9FB; border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: -2px 0 10px; }
   .panel .cnt { font-size: 22px; font-weight: 700; color: var(--navy); }
   .lanes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
+  .crow { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
+  .igrid { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  .igrid th { font-size: 13px; color: var(--sub); font-weight: 400; padding: 4px 2px; }
+  .igrid td { padding: 3px 2px; }
+  .igrid input { width: 100%; font-size: 17px; padding: 9px 4px; border: 1px solid var(--line); border-radius: 8px; text-align: center; background: #fff; }
+  .igrid td.rk { font-weight: 700; font-size: 14px; white-space: nowrap; padding-right: 6px; }
+  .btns.two a { flex: 1 1 45%; }
   .lanes button { padding: 8px 0; border-radius: 8px; border: 1px solid var(--line); background: #fff; font-weight: 700; color: var(--navy); }
   .lanes button small { display: block; font-size: 10px; color: #F28C28; line-height: 1; }
   .lanes button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
@@ -276,7 +283,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-09i';
+  var SCREEN_VERSION = '2026-11-09j';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -417,6 +424,9 @@
     else if (h === '#/inv/insp') openInspect(false);
     else if (h === '#/inv/stock') openInspect(true);
     else if (h === '#/inv/pre') openPre();
+    else if (h === '#/inv/cinsp') openCntInspect();
+    else if (h === '#/inv/cadj') openCntAdj();
+    else if (h === '#/inv/clog') openCntLog();
     else if (h === '#/new') openNew();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
@@ -530,7 +540,7 @@
   function openOrder(key, force) {
     setNav('#/list', '#/list');
     $('title').textContent = key.split('/')[1] || key;
-    if (!force) { $('main').innerHTML = ''; openInline = ''; chargeData = null; chosenLane = ''; }
+    if (!force) { $('main').innerHTML = ''; openInline = ''; chargeData = null; cntData = null; chosenLane = ''; }
     loading(true);
     orderScanHandlers();
     call('order', { key: key }).then(function (d) { current = d; renderOrder(true); })
@@ -562,7 +572,7 @@
       if (!it.result && !firstOpen) firstOpen = it.id;
       var cls = it.result === '済' ? ' done' : (it.result === '該当なし' ? ' na' : '');
       var mark = it.result === '済' ? '✓' : (it.result === '該当なし' ? 'ー' : '');
-      var badge = it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
+      var badge = it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : it.id === 'C45' ? (it.result ? '' : '<span class="badge auto">在庫の「戻りが届いた」で自動</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
       var val = it.value;
       if (it.id === 'C49' && val) { var pm = /棚から(\d+)本・ユニット(\d+)台・余り(\d+)本/.exec(val); if (pm) val = newPlanWords({ fromShelf: +pm[1], units: +pm[2], toShelf: +pm[3] }, '').replace(/<\/?b>/g, '').replace('開けて 本使い、', '開けて使い、'); }
       var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
@@ -987,8 +997,19 @@
     if (/^\d{1,2}$/.test(v)) return 'KK-L' + ('0' + v).slice(-2);
     return v;
   }
+  // 充電開始の入れ方：'数'（棚から何本）／'QR'（1本ずつ読む）。端末ごとに覚える
+  var chargeMode = (function () { try { return localStorage.getItem('hvrc_chargeMode') || '数'; } catch (e) { return '数'; } })();
+  var cntData = null, cRows = [];
   function loadCharge() {
     renderOrder(false);
+    var key = current.key;
+    if (chargeMode === '数') {
+      call('cntCharge', { key: key }).then(function (d) {
+        if (!current || current.key !== key) return;
+        cntData = d; cRowsInit(); if (!chosenLane && current.lane) chosenLane = current.lane; renderOrder(false);
+      }).catch(function (e) { toast(e.message); });
+      return;
+    }
     call('invCharge', { key: current.key }).then(function (d) {
       chargeData = d;
       if (!chosenLane && d.lanes.length) chosenLane = d.lanes[0];
@@ -996,11 +1017,72 @@
       renderOrder(false);
     }).catch(function (e) { toast(e.message); });
   }
+  function cRowsInit() {
+    var d = cntData; if (!d) return;
+    var rest = Math.max((d.need || 0) - d.have, 0);
+    cRows = [{ cat: d.cat, grade: '', rank: '', n: rest || '' }];
+  }
+  function chargeModeSeg() {
+    return '<div class="seg"><button data-cmode="数"' + (chargeMode === '数' ? ' class="on"' : '') + '>本数で入れる</button><button data-cmode="QR"' + (chargeMode === 'QR' ? ' class="on"' : '') + '>QRで1本ずつ</button></div>';
+  }
+  function cntChargeHtml() {
+    var d = cntData;
+    if (!d || d.key !== current.key) return '<div class="panel">' + chargeModeSeg() + '読み込み中…</div>';
+    var G = ['G2-1', 'G2-2', 'G2-3', 'G3'], R = ['A', 'B+', 'B', 'C'];
+    var html = '<div class="panel">' + chargeModeSeg();
+    html += '<div><span class="cnt">' + d.have + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + '（' + esc(d.cat === '半年' ? '半年用' : '使用可能') + 'の棚から）</span></div>';
+    if (d.from.length) html += '<div class="meta">出した棚：' + d.from.map(function (f) { return esc(f.label) + ' ' + f.n + '本'; }).join('・') + '</div>';
+    if (d.need && d.have >= d.need) {
+      html += '<div class="big-ok">必要本数そろっています</div>';
+    } else {
+      html += '<div class="lbl2">棚から出した本数（棚が分かれたら「＋ 棚を足す」）</div>';
+      cRows.forEach(function (r, i) {
+        var id = r.grade && r.rank ? r.cat + '/' + r.grade + '/' + r.rank : '';
+        html += '<div class="crow"><div class="seg" style="margin:4px 0">' + ['使用可能', '半年'].map(function (c) { return '<button data-ccat="' + i + '" data-v="' + c + '"' + (r.cat === c ? ' class="on"' : '') + '>' + (c === '半年' ? '半年用' : c) + '</button>'; }).join('') + '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center"><select class="f" data-crow="' + i + '" data-ck="grade"><option value="">種類</option>' + G.map(function (g) { return '<option' + (r.grade === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select>' +
+          '<select class="f" data-crow="' + i + '" data-ck="rank"><option value="">ランク</option>' + R.map(function (x) { return '<option' + (r.rank === x ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+          '<input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0" placeholder="本">' +
+          (cRows.length > 1 ? '<button class="btn sub" data-cdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
+          (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' : '') + '</div>';
+      });
+      html += '<button class="btn sub" data-cadd="1">＋ 棚を足す</button>';
+      html += '<div class="lbl2">充電レーン（なくても可）' + (chosenLane ? '：<b>' + esc(chosenLane) + '</b>' : '') + '</div>';
+      html += '<div class="lanes">' + LANES.map(function (l, i) { return '<button data-lane="' + l + '"' + (chosenLane === l ? ' class="on"' : '') + '>' + (i + 1) + '</button>'; }).join('') + '</div>';
+      html += '<button class="btn" data-csave="1">この本数で充電開始</button>';
+    }
+    if (d.countEntered) html += '<button class="btn sub" data-cundo="1">数で入れた分を取り消す（棚に戻す）</button>';
+    return html + '</div>';
+  }
+  function cRead() {
+    document.querySelectorAll('[data-crow]').forEach(function (el) { var r = cRows[Number(el.getAttribute('data-crow'))]; if (r) r[el.getAttribute('data-ck')] = el.value; });
+  }
+  function cntSave(reason) {
+    cRead();
+    var key = current.key;
+    var rows = cRows.filter(function (r) { return Number(r.n) > 0; });
+    if (!rows.length) { toast('本数を入れてください'); return; }
+    if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('種類とランクを選んでください'); return; }
+    loading(true);
+    return call('cntChargeSave', { key: key, rows: rows, lane: chosenLane, reason: reason || '' }).then(function (d) {
+      loading(false);
+      if (!current || current.key !== key) return;
+      if (d.warn) return warnSheet(d.warn).then(function (r) { if (r) return cntSave(r); });
+      cntData = d; cRowsInit(); invData = null;
+      if (d.notes && d.notes.length) toast(d.notes.join('／'));
+      if (d.checked) {
+        okToast(d.have + '本そろいました。「充電開始」をチェックしました');
+        openInline = '';
+        return call('order', { key: key }).then(function (o) { current = o; renderOrder(false); listCache = null; });
+      }
+      renderOrder(false);
+    }).catch(function (e) { loading(false); toast(e.message); });
+  }
   function chargeHtml() {
+    if (chargeMode === '数') return cntChargeHtml();
     var d = chargeData;
-    if (!d) return '<div class="panel">読み込み中…</div>';
+    if (!d) return '<div class="panel">' + chargeModeSeg() + '読み込み中…</div>';
     var n = d.modules.filter(function (m) { return m.state.indexOf('充電中') === 0 || m.state === '組立済'; }).length;
-    var html = '<div class="panel"><div><span class="cnt">' + n + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + (d.warranty ? '（' + d.warranty + '保証のモジュール）' : '') + '</span></div>';
+    var html = '<div class="panel">' + chargeModeSeg() + '<div><span class="cnt">' + n + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + (d.warranty ? '（' + d.warranty + '保証のモジュール）' : '') + '</span></div>';
     html += '<div class="lbl2">① 充電レーン' + (chosenLane ? '：<b>' + esc(chosenLane) + '</b>' : '（押すか、レーンのQRを読む）') + '</div>';
     html += '<div class="lanes">' + LANES.map(function (l, i) { return '<button data-lane="' + l + '"' + (chosenLane === l ? ' class="on"' : '') + '>' + (i + 1) + '</button>'; }).join('') + '</div>';
     if (!chosenLane) html += scanBox('lane', 'レーンのQRを読む');
@@ -1013,6 +1095,11 @@
     }
     return html + '</div>';
   }
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!current || !t.getAttribute || !t.getAttribute('data-crow') || t.getAttribute('data-ck') === 'n') return;
+    cRead(); renderOrder(false);
+  });
   // ---- 新品の修理：新品棚・新品ユニットから出す（C49） ----
   var newPlan = null;
   function loadNewPlan(need) {
@@ -1100,7 +1187,23 @@
   document.addEventListener('click', function (e) {
     if (!current || location.hash.indexOf('#/order/') !== 0) return;
     var t;
-    if ((t = e.target.closest('[data-lane]'))) { chosenLane = t.getAttribute('data-lane'); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-lane]'))) { if (chargeMode === '数') cRead(); chosenLane = chosenLane === t.getAttribute('data-lane') && chargeMode === '数' ? '' : t.getAttribute('data-lane'); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cmode]'))) {
+      chargeMode = t.getAttribute('data-cmode'); try { localStorage.setItem('hvrc_chargeMode', chargeMode); } catch (er) { /* なくても動く */ }
+      chargeData = null; cntData = null; loadCharge(); return;
+    }
+    if ((t = e.target.closest('[data-ccat]'))) { cRead(); cRows[Number(t.getAttribute('data-ccat'))].cat = t.getAttribute('data-v'); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: last.grade || '', rank: '', n: '' }); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cdel]'))) { cRead(); cRows.splice(Number(t.getAttribute('data-cdel')), 1); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-csave]'))) { cntSave(''); return; }
+    if ((t = e.target.closest('[data-cundo]'))) {
+      var ck = current.key;
+      confirmSheet('数で入れた充電開始の本数を、棚に戻しますか？（チェックはそのままです。外すときはチェックも取り消してください）', '棚に戻す').then(function (ok) {
+        if (!ok) return;
+        call('cntChargeUndo', { key: ck }).then(function (d) { cntData = d; cRowsInit(); invData = null; renderOrder(false); }).catch(function (er) { toast(er.message); });
+      });
+      return;
+    }
     if ((t = e.target.closest('[data-crm]'))) {
       var qr = t.getAttribute('data-crm');
       confirmSheet(qr + ' を充電から外して棚に戻しますか？', '外す').then(function (ok) {
@@ -1128,6 +1231,11 @@
     var d = invData;
     var item = function (id) { var x = d.items.filter(function (i) { return i.id === id; })[0]; return x ? x.count : 0; };
     var G = d.grades || ['G2-1', 'G2-2', 'G2-3', 'G3'], R = d.ranks || ['A', 'B+', 'B', 'C'], M = d.matrix || { usable: {}, half: {} };
+    var C = d.cnt; // 本数（本数.gs）があれば、在庫表は本数から
+    if (C) {
+      M = { usable: {}, half: {} };
+      R.forEach(function (r) { M.usable[r] = {}; M.half[r] = {}; G.forEach(function (g) { M.usable[r][g] = C.now['使用可能/' + g + '/' + r] || 0; M.half[r][g] = C.now['半年/' + g + '/' + r] || 0; }); });
+    }
     var cell = function (n, cls) { return '<td class="' + (cls || '') + (n ? '' : ' z') + '">' + (n ? n : '-') + '</td>'; };
     var sumRow = function (k, r) { return G.reduce(function (a, g) { return a + ((M[k][r] || {})[g] || 0); }, 0); };
     var sumG = function (k, g) { return R.reduce(function (a, r) { return a + ((M[k][r] || {})[g] || 0); }, 0); };
@@ -1142,17 +1250,30 @@
     var need = {}; (d.models || []).forEach(function (m) { need[m.model] = m.need; });
     var waitUnitsMods = d.measure.reduce(function (a, u) { return a + (need[u.model] || 0); }, 0);
     var newTotal = item('NEW-MOD') + item('NEW-UNIT') * 28;
-    var html = '<div class="h2" style="margin-top:4px">在庫表（検査済のモジュール）</div><div class="ztwrap"><table class="zt"><tr><th></th><th>合計</th>' + G.map(function (g) { return '<th>' + esc(g) + '</th>'; }).join('') + '</tr>';
+    var html = C && !C.started ? '<div class="note">まだ本数が入っていません。管理者がスプレッドシートのメニュー「本数：Excelの在庫管理から取り込む」で、最初の本数を入れてください。</div>' : '';
+    html += '<div class="h2" style="margin-top:4px">在庫表' + (C ? '' : '（検査済のモジュール）') + '</div><div class="ztwrap"><table class="zt"><tr><th></th><th>合計</th>' + G.map(function (g) { return '<th>' + esc(g) + '</th>'; }).join('') + '</tr>';
     html += block('usable', '使用可能（1年・2年保証用）');
     html += block('half', '半年保証用（インピ〇放電×）');
     html += '<tr class="tot"><td class="rk">修理用 合計</td>' + cell(repairTotal, 'sum') + G.map(function (g) { return cell(sumG('usable', g) + sumG('half', g)); }).join('') + '</tr>';
+    if (C) {
+      var one = function (id, label, memo, cls) { return '<tr class="one' + (cls ? ' ' + cls : '') + '"><td class="rk">' + label + '</td>' + cell(C.now[id] || 0, 'sum') + '<td colspan="' + G.length + '" class="memo">' + (memo || '') + '</td></tr>'; };
+      html += one('ジャンク', 'ジャンク用', 'インピ×放電×');
+      html += one('未計測/G2', '未計測 G2', '分解待ち ' + d.measure.length + '台');
+      html += one('未計測/G3', '未計測 G3', '');
+      html += one('新品', '新品', '新品棚 ' + item('NEW-MOD') + '本・新品ユニット ' + item('NEW-UNIT') + '台', 'new');
+      html += one('12セル新品', '12セル新品', '', 'new');
+      html += one('再販用ユニット', '再販用ユニット', '');
+    } else {
     html += '<tr class="one"><td class="rk">ジャンク用</td>' + cell(item('JUNK-MOD'), 'sum') + '<td colspan="' + G.length + '" class="memo">インピ×放電×</td></tr>';
     html += '<tr class="one"><td class="rk">未計測・計測待ち</td>' + cell(d.waitInspect + waitUnitsMods, 'sum') + '<td colspan="' + G.length + '" class="memo">分解済み ' + d.waitInspect + '本＋分解待ち ' + d.measure.length + '台（約' + waitUnitsMods + '本）</td></tr>';
     html += '<tr class="one new"><td class="rk">新品</td>' + cell(newTotal, 'sum') + '<td colspan="' + G.length + '" class="memo">新品棚 ' + item('NEW-MOD') + '本＋新品ユニット ' + item('NEW-UNIT') + '台（×28本）</td></tr>';
+    }
     html += '</table></div>';
+    var waitN = C ? (C.now['修理用'] || 0) : d.repairWait;
     html += '<div class="tiles">' +
-      '<div class="tile"><div class="v">' + d.repairWait + '<small>本</small></div><div class="k">修理待ち（充電中・組立済）</div></div>' +
-      '<div class="tile"><div class="v">' + (repairTotal + d.repairWait) + '<small>本</small></div><div class="k">在庫＋修理待ち</div></div>' +
+      '<div class="tile"><div class="v">' + waitN + '<small>本</small></div><div class="k">修理待ち（充電中〜組み上げ）</div></div>' +
+      '<div class="tile"><div class="v">' + (repairTotal + waitN) + '<small>本</small></div><div class="k">在庫＋修理待ち</div></div>' +
+      (C ? '<div class="tile"><div class="v">' + (C.now['予備充電'] || 0) + '<small>本</small></div><div class="k">予備充電中</div></div>' : '') +
       '<div class="tile"><div class="v">' + d.collect.length + '<small>台</small></div><div class="k">回収待ち（戻り）</div></div>' +
       '<div class="tile"><div class="v">' + d.measure.length + '<small>台</small></div><div class="k">分解待ちのユニット</div></div></div>';
     if (d.monthly) {
@@ -1164,7 +1285,10 @@
       var df = function (n) { return '<td class="' + (n > 0 ? 'up' : n < 0 ? 'down' : 'z') + '">' + (n > 0 ? '+' : '') + n + '</td>'; };
       html += '<tr class="sub"><td class="rk">前月比</td>' + ks.map(function (k) { return df(mo.cur[k] - mo.prev[k]); }).join('') + df(tc - tp) + '</tr></table>';
     }
-    html += '<div class="btns"><a href="#/inv/in">入庫</a><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
+    html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
+    if (C && C.repairOrders.length) html += '<div class="meta" style="margin:-4px 0 8px">修理用の内訳：' + C.repairOrders.map(function (x) { return '<a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a> ' + x.n + '本'; }).join('・') + '</div>';
+    if (C && C.recent.length) html += '<table class="t">' + C.recent.map(function (x) { return '<tr><td class="meta">' + esc(x.at) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + (x.key ? '<span class="meta">（' + esc(x.key) + '）</span>' : '') + '</td><td class="n">' + x.n + '</td></tr>'; }).join('') + '</table>';
+    html += '<div class="h2">QRで1本ずつ</div><div class="btns"><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
     html += '<div class="h2">棚ごとの本数（どの棚にあるか）</div>';
     html += d.shelves.length ? '<table class="t"><tr><th>種類</th><th>保証</th><th>ランク</th><th>棚</th><th style="text-align:right">本数</th></tr>' + d.shelves.map(function (s) {
       return '<tr><td>' + esc(s.grade) + '</td><td>' + esc(s.warranty) + '</td><td>' + esc(s.rank) + '</td><td class="meta">' + esc(s.shelf) + '</td><td class="n">' + s.count + '</td></tr>';
@@ -1234,8 +1358,168 @@
     }
   });
 
+  // ---- 本数：検査の結果（ユニットごと） ----
+  var ci = { data: null, unit: null, grade: '', src: '', bara: false, last: null };
+  var CNT_G = ['G2-1', 'G2-2', 'G2-3', 'G3'], CNT_R = ['A', 'B+', 'B', 'C'];
+  function openCntInspect() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '検査の結果（本数）';
+    loading(true);
+    call('cntInspectView').then(function (d) { ci.data = d; ci.unit = null; ci.bara = false; renderCntInspect(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function ciTotal() {
+    var t = 0;
+    document.querySelectorAll('[data-ig]').forEach(function (el) { t += Number(el.value) || 0; });
+    return t;
+  }
+  function renderCntInspect() {
+    var d = ci.data; if (!d) return;
+    var html = '';
+    if (ci.last) html += '<div class="big-ok">登録しました：' + esc(ci.last.unitNo || 'ユニットなし') + '　' + ci.last.total + '本（2年 ' + ci.last.sums['2年'] + '・1年 ' + ci.last.sums['1年'] + '・半年 ' + ci.last.sums['半年'] + '・ジャンク ' + ci.last.junk + '）</div>';
+    if (!ci.unit && !ci.bara) {
+      html += '<div class="lbl2">検査したユニットを選ぶ（届いて、まだ結果を入れていないもの）</div>';
+      html += d.units.length ? d.units.map(function (u) {
+        return '<div class="card tap" data-ciu="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.state) + '</span></div><div class="meta">' + esc(u.kind + '　' + u.model + '　' + (u.n ? u.n + '本' : '') + (u.src ? '　' + u.src.replace('/', ' ') : '')) + '</div></div>';
+      }).join('') : '<div class="empty">結果を入れていないユニットはありません</div>';
+      html += '<button class="btn sub" data-cibara="1">ユニットなし（バラのモジュール）で入れる</button>';
+      $('main').innerHTML = html; return;
+    }
+    var u = ci.unit;
+    html += '<div class="head"><div class="big">' + esc(u ? u.unitNo : 'ユニットなし（バラ）') + '</div><div class="meta">' + esc(u ? u.kind + '・' + u.model + (u.n ? '・' + u.n + '本' : '') : '') + '</div></div>';
+    html += '<div class="lbl2">種類</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
+    html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
+    html += '<div class="lbl2">結果の本数（空欄は0）</div><table class="igrid"><tr><th></th>' + CNT_R.map(function (r) { return '<th>' + r + '</th>'; }).join('') + '</tr>';
+    [['2年', '2年保証用'], ['1年', '1年保証用'], ['半年', '半年保証用']].forEach(function (w) {
+      html += '<tr><td class="rk">' + w[1] + '</td>' + CNT_R.map(function (r) { return '<td><input type="number" inputmode="numeric" data-ig="' + w[0] + '" data-ir="' + r + '"></td>'; }).join('') + '</tr>';
+    });
+    html += '<tr><td class="rk">ジャンク</td><td colspan="4"><input type="number" inputmode="numeric" data-ig="junk" id="ciJunk" style="width:50%"></td></tr></table>';
+    html += '<div class="panel" id="ciSum">合計 0本' + (u && u.n ? ' / ' + u.n + '本' : '') + '</div>';
+    html += '<div class="lbl2">メモ（なくても可）</div><input class="f" id="ciNote">';
+    html += '<button class="btn" data-cisave="1">この結果で登録する</button><button class="btn sub" data-ciback="1">ユニットを選び直す</button>';
+    $('main').innerHTML = html;
+  }
+  function ciSave() {
+    var u = ci.unit, total = ciTotal();
+    if (!ci.grade) { toast('種類を選んでください'); return; }
+    if (!ci.src) { toast('どこ（未計測 G2・G3）から検査したかを選んでください'); return; }
+    if (!total) { toast('本数を入れてください'); return; }
+    var cells = { '2年': {}, '1年': {}, '半年': {} };
+    document.querySelectorAll('[data-ir]').forEach(function (el) { if (Number(el.value) > 0) cells[el.getAttribute('data-ig')][el.getAttribute('data-ir')] = Number(el.value); });
+    var junk = Number(($('ciJunk') || {}).value) || 0;
+    var msg = (u ? u.unitNo : 'ユニットなし') + '：合計 ' + total + '本' + (u && u.n && u.n !== total ? '（このユニットは ' + u.n + '本です）' : '') + '\nこの結果で登録しますか？';
+    confirmSheet(msg, '登録する').then(function (ok) {
+      if (!ok) return;
+      loading(true);
+      call('cntInspect', { unitNo: u ? u.unitNo : '', grade: ci.grade, src: ci.src, cells: cells, junk: junk, note: ($('ciNote') || {}).value || '' }).then(function (d) {
+        ci.data = d; ci.last = d.saved; ci.unit = null; ci.bara = false; invData = null;
+        if (d.notes && d.notes.length) toast(d.notes.join('／'));
+        renderCntInspect(); window.scrollTo(0, 0);
+      }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+    });
+  }
+  document.addEventListener('input', function (e) {
+    if (location.hash !== '#/inv/cinsp' || !e.target.getAttribute || !e.target.getAttribute('data-ig')) return;
+    var el = $('ciSum'); if (el) el.textContent = '合計 ' + ciTotal() + '本' + (ci.unit && ci.unit.n ? ' / ' + ci.unit.n + '本' : '');
+  });
+
+  // ---- 本数：合わせる（棚卸し）・その他の出し入れ ----
+  var ca = { now: null, ids: [] };
+  function cntLabel(id) {
+    if (!id) return '（外）';
+    var L = { '未計測/G2': '未計測 G2', '未計測/G3': '未計測 G3', 'ジャンク': 'ジャンク用', '修理用': '修理用', '予備充電': '予備充電中' };
+    if (L[id]) return L[id];
+    var a = id.split('/'); return a.length === 3 ? (a[0] === '半年' ? '半年用' : '使用可能') + ' ' + a[1] + ' ' + a[2] : id;
+  }
+  function openCntAdj() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '本数を合わせる・出す';
+    loading(true);
+    invLoad(true).then(function (d) {
+      if (!d.cnt) throw new Error('サーバーが古い版です');
+      ca.now = d.cnt.now; ca.ids = Object.keys(d.cnt.now).filter(function (k) { return k !== '修理用'; });
+      renderCntAdj();
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function renderCntAdj() {
+    var opts = function (sel, outside) { return '<option value="">' + outside + '</option>' + ca.ids.map(function (id) { return '<option value="' + esc(id) + '">' + esc(cntLabel(id)) + '（' + (ca.now[id] || 0) + '）</option>'; }).join(''); };
+    var html = '<div class="h2">その他の出し入れ</div><div class="note">ヤフオク・ズベイルさんへの販売、再販用ユニットに組んだ、廃棄など、修理以外で本数が動いたとき</div>';
+    html += '<div class="lbl2">どこから</div><select class="f" id="caFrom">' + opts('', '（外から入った）') + '</select>';
+    html += '<div class="lbl2">どこへ</div><select class="f" id="caTo">' + opts('', '（外へ出した）') + '</select>';
+    html += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="caN">';
+    html += '<div class="lbl2">理由</div><div class="seg">' + ['ヤフオクで販売', 'ズベイルさんへ', '再販用ユニットに組んだ', '廃棄', 'その他'].map(function (r) { return '<button data-careason="' + r + '">' + r + '</button>'; }).join('') + '</div><input class="f" id="caWhy" placeholder="理由（上から選ぶか書く）">';
+    html += '<button class="btn" data-camove="1">この本数を動かす</button>';
+    html += '<div class="h2">本数の棚卸し（数えた本数に合わせる）</div><div class="note">数えた本数を入れたところだけ合わせます（空欄はそのまま）。差は「本数の動き」に「棚卸し」で残ります</div><table class="t">';
+    ca.ids.forEach(function (id) { html += '<tr><td>' + esc(cntLabel(id)) + '</td><td class="n">' + (ca.now[id] || 0) + '</td><td style="width:90px"><input class="f" type="number" inputmode="numeric" data-cast="' + esc(id) + '" style="padding:8px;font-size:16px"></td></tr>'; });
+    html += '</table><input class="f" id="caNote" placeholder="メモ（例：月末の棚卸し）"><button class="btn" data-castock="1">数えた本数に合わせる</button>';
+    $('main').innerHTML = html;
+  }
+  // ---- 本数の動き ----
+  function openCntLog() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '本数の動き';
+    loading(true);
+    call('cntLog').then(function (d) {
+      $('main').innerHTML = d.log.length ? '<table class="t"><tr><th>日時</th><th>動き</th><th style="text-align:right">本数</th></tr>' + d.log.map(function (x) {
+        return '<tr><td class="meta">' + esc(x.at) + '<br>' + esc(x.by) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + '<div class="meta">' + esc([x.key, x.unit, x.why].filter(Boolean).join('　')) + '</div></td><td class="n">' + x.n + '</td></tr>';
+      }).join('') + '</table>' : '<div class="empty">まだありません</div>';
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  document.addEventListener('click', function (e) {
+    var h = location.hash, t;
+    if (h === '#/inv/cinsp') {
+      if ((t = e.target.closest('[data-ciu]'))) {
+        var no = t.getAttribute('data-ciu');
+        ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
+        ci.src = ci.unit.src || ''; ci.grade = ''; renderCntInspect(); window.scrollTo(0, 0); return;
+      }
+      if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-cig]'))) {
+        var keep = {}; document.querySelectorAll('[data-ig]').forEach(function (el) { keep[el.getAttribute('data-ig') + (el.getAttribute('data-ir') || '')] = el.value; });
+        var note = ($('ciNote') || {}).value;
+        ci.grade = t.getAttribute('data-cig'); if (!ci.src) ci.src = ci.grade === 'G3' ? '未計測/G3' : '未計測/G2';
+        renderCntInspect();
+        document.querySelectorAll('[data-ig]').forEach(function (el) { var k = el.getAttribute('data-ig') + (el.getAttribute('data-ir') || ''); if (keep[k]) el.value = keep[k]; });
+        if (note) $('ciNote').value = note;
+        var el2 = $('ciSum'); if (el2) el2.textContent = '合計 ' + ciTotal() + '本' + (ci.unit && ci.unit.n ? ' / ' + ci.unit.n + '本' : '');
+        return;
+      }
+      if ((t = e.target.closest('[data-cisrc]'))) {
+        var keep2 = {}; document.querySelectorAll('[data-ig]').forEach(function (el) { keep2[el.getAttribute('data-ig') + (el.getAttribute('data-ir') || '')] = el.value; });
+        ci.src = t.getAttribute('data-cisrc'); renderCntInspect();
+        document.querySelectorAll('[data-ig]').forEach(function (el) { var k = el.getAttribute('data-ig') + (el.getAttribute('data-ir') || ''); if (keep2[k]) el.value = keep2[k]; });
+        return;
+      }
+      if ((t = e.target.closest('[data-cisave]'))) { ciSave(); return; }
+    }
+    if (h === '#/inv/cadj') {
+      if ((t = e.target.closest('[data-careason]'))) { $('caWhy').value = t.getAttribute('data-careason'); return; }
+      if ((t = e.target.closest('[data-camove]'))) {
+        var p = { from: $('caFrom').value, to: $('caTo').value, n: $('caN').value, reason: $('caWhy').value };
+        if (!p.from && !p.to) { toast('どこから・どこへを選んでください'); return; }
+        if (!(Number(p.n) > 0)) { toast('本数を入れてください'); return; }
+        if (!p.reason.trim()) { toast('理由を入れてください'); return; }
+        confirmSheet(cntLabel(p.from) + ' → ' + cntLabel(p.to) + '　' + p.n + '本（' + p.reason + '）', '動かす').then(function (ok) {
+          if (!ok) return;
+          call('cntMove', p).then(function (d) { ca.now = d.now; invData = null; okToast('動かしました'); if (d.notes && d.notes.length) toast(d.notes.join('／')); renderCntAdj(); }).catch(function (er) { toast(er.message); });
+        });
+        return;
+      }
+      if ((t = e.target.closest('[data-castock]'))) {
+        var vals = {}, n = 0;
+        document.querySelectorAll('[data-cast]').forEach(function (el) { if (String(el.value).trim() !== '') { vals[el.getAttribute('data-cast')] = el.value; n++; } });
+        if (!n) { toast('数えた本数を入れてください'); return; }
+        confirmSheet(n + 'か所の本数を、数えた本数に合わせますか？', '合わせる').then(function (ok) {
+          if (!ok) return;
+          call('cntStock', { values: vals, note: $('caNote').value }).then(function (d) { ca.now = d.now; invData = null; okToast(d.changed + 'か所 合わせました'); renderCntAdj(); }).catch(function (er) { toast(er.message); });
+        });
+        return;
+      }
+    }
+  });
+
   // ---- 入庫 ----
-  var inMode = '戻り', inUnit = '', inLast = null;
+  var inMode = '戻り', inUnit = '', inLast = null, inCell = 'G2';
   function openInbound() {
     setNav('#/inv', '#/inv');
     $('title').textContent = '入庫';
@@ -1263,7 +1547,8 @@
       html += d.collect.length ? d.collect.map(function (u) {
         return '<div class="card tap' + (inUnit === u.unitNo ? ' sel' : '') + '" data-inunit="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.at) + '</span></div><div class="meta">' + esc(u.model) + '　' + esc(u.order) + '</div></div>';
       }).join('') : '<div class="empty">回収待ちのユニットはありません</div>';
-      if (inUnit) html += '<div class="lbl2">② ユニットケースのバーコードを読む</div>' + scanBox('incase', 'ケースの製造番号') +
+      if (inUnit) html += '<div class="lbl2">② 未計測のどちらに入れるか</div><div class="seg">' + ['G2', 'G3'].map(function (x) { return '<button data-incell="' + x + '"' + (inCell === x ? ' class="on"' : '') + '>未計測 ' + x + '</button>'; }).join('') + '</div>' +
+        '<div class="lbl2">③ ユニットケースのバーコードを読む</div>' + scanBox('incase', 'ケースの製造番号') +
         '<button class="btn sub" data-innocase="1">ケースの番号なしで入庫する</button>';
     } else {
       html += buyHtml(d);
@@ -1329,7 +1614,8 @@
       } else if (sup) {
         h += '<div class="seg"><button data-bloose="0"' + (!buy.loose ? ' class="on"' : '') + '>ユニット（番号を付ける）</button><button data-bloose="1"' + (buy.loose ? ' class="on"' : '') + '>バラのモジュール</button></div>';
         if (buy.loose) {
-          h += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="bLooseQty" value="' + esc(buy.looseQty) + '">';
+          h += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="bLooseQty" value="' + esc(buy.looseQty) + '">' +
+            '<div class="lbl2">未計測のどちらに入れるか</div><div class="seg">' + ['G2', 'G3'].map(function (x) { return '<button data-bcell="' + x + '"' + ((buy.cell || 'G2') === x ? ' class="on"' : '') + '>未計測 ' + x + '</button>'; }).join('') + '</div>';
         } else {
           h += '<div class="lbl2">車種と台数（まとめて買った分を全部）</div>' + buy.lines.map(function (l, i) {
             return '<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><select class="f" data-bline="' + i + '" data-bk="model" style="flex:2"><option value="">車種を選ぶ</option>' +
@@ -1338,6 +1624,7 @@
               '<span class="meta">台</span>' + (buy.lines.length > 1 ? '<button class="btn sub" data-bdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>';
           }).join('') + '<button class="btn sub" data-badd="1">＋ 車種を足す</button>';
           var pre = buy.prefix || sup.prefix;
+          h += '<div class="lbl2">未計測のどちらに入れるか</div><div class="seg">' + ['G2', 'G3'].map(function (x) { return '<button data-bcell="' + x + '"' + ((buy.cell || 'G2') === x ? ' class="on"' : '') + '>未計測 ' + x + '</button>'; }).join('') + '</div>';
           h += '<div class="lbl2">番号の頭</div><div class="seg">' + d.buy.prefixes.map(function (x) { return '<button data-bpre="' + x + '"' + (pre === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>';
         }
       }
@@ -1388,7 +1675,7 @@
     if (String(buy.price).trim() === '') { toast('金額を入れてください（無料なら 0）'); return; }
     if (!t.qty) { toast(sup.isNew ? '台数を入れてください' : buy.loose ? '本数を入れてください' : '車種と台数を入れてください'); return; }
     var p = { date: buy.date, supplier: sup.name, prefix: buy.prefix || sup.prefix || '', tax: buy.tax || sup.tax, price: buy.price, note: buy.note,
-      loose: !!buy.loose, looseQty: buy.looseQty, lines: buy.lines, newUnits: buy.newUnits, newPer: buy.newPer };
+      loose: !!buy.loose, looseQty: buy.looseQty, lines: buy.lines, newUnits: buy.newUnits, newPer: buy.newPer, cell: buy.cell || 'G2' };
     confirmSheet(sup.name + '　' + buySumText(d) + '\nこの内容で登録しますか？', '登録する').then(function (ok) {
       if (!ok) return;
       loading(true);
@@ -1399,7 +1686,7 @@
     });
   }
   function doInbound(serial) {
-    var p = { kind: inMode, caseSerial: serial || '' };
+    var p = { kind: inMode, caseSerial: serial || '', cell: inCell };
     if (inMode === '戻り') { if (!inUnit) { toast('先に届いたユニットを選んでください'); return; } p.unitNo = inUnit; }
     else {
       p.model = $('inModel').value; p.supplier = $('inSup').value; p.price = $('inPrice').value; p.oldNo = $('inOld').value;
@@ -1496,6 +1783,8 @@
     if ((t = e.target.closest('[data-inmode]'))) { inMode = t.getAttribute('data-inmode'); inUnit = ''; inLast = null; renderInbound(); return; }
     if ((t = e.target.closest('[data-inunit]'))) { inUnit = t.getAttribute('data-inunit'); renderInbound(); return; }
     if ((t = e.target.closest('[data-innocase]'))) { doInbound(''); return; }
+    if ((t = e.target.closest('[data-incell]'))) { inCell = t.getAttribute('data-incell'); renderInbound(); return; }
+    if ((t = e.target.closest('[data-bcell]'))) { buyRead(); buy.cell = t.getAttribute('data-bcell'); renderInbound(); return; }
     // 仕入れ
     if ((t = e.target.closest('[data-bsup]'))) { buyRead(); buy.supplier = t.getAttribute('data-bsup'); buy.prefix = ''; buy.tax = ''; renderInbound(); return; }
     if ((t = e.target.closest('[data-bloose]'))) { buyRead(); buy.loose = t.getAttribute('data-bloose') === '1'; renderInbound(); return; }
