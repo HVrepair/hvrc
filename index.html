@@ -275,7 +275,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-09f';
+  var SCREEN_VERSION = '2026-11-09g';
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
   var token = '';
@@ -560,7 +560,7 @@
       if (!it.result && !firstOpen) firstOpen = it.id;
       var cls = it.result === '済' ? ' done' : (it.result === '該当なし' ? ' na' : '');
       var mark = it.result === '済' ? '✓' : (it.result === '該当なし' ? 'ー' : '');
-      var badge = it.type === '自動' ? '<span class="badge auto">自動化予定</span>' : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
+      var badge = it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
       var val = it.value;
       if (it.id === 'C49' && val) { var pm = /棚から(\d+)本・ユニット(\d+)台・余り(\d+)本/.exec(val); if (pm) val = newPlanWords({ fromShelf: +pm[1], units: +pm[2], toShelf: +pm[3] }, '').replace(/<\/?b>/g, '').replace('開けて 本使い、', '開けて使い、'); }
       var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
