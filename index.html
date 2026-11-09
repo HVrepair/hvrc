@@ -135,6 +135,13 @@
   .panel .cnt { font-size: 22px; font-weight: 700; color: var(--navy); }
   .lanes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
   .crow { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
+  .rbar { padding: 6px 4px; border-radius: 8px; }
+  .rbar.tap { cursor: pointer; }
+  .rbar.on { background: #EEF4FF; }
+  .rbar .rl { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+  .rbar .rn { color: var(--sub); white-space: nowrap; }
+  .rbar .rb { height: 8px; background: #EEF0F3; border-radius: 4px; margin-top: 3px; overflow: hidden; }
+  .rbar .rb div { height: 100%; background: var(--navy); border-radius: 4px; }
   .igrid { width: 100%; border-collapse: collapse; margin: 6px 0; }
   .igrid th { font-size: 13px; color: var(--sub); font-weight: 400; padding: 4px 2px; }
   .igrid td { padding: 3px 2px; }
@@ -283,7 +290,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-09m';
+  var SCREEN_VERSION = '2026-11-09p';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -408,7 +415,7 @@
   $('back').addEventListener('click', function () { location.hash = backTo || '#/list'; });
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0) route(); else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere') { reData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -429,6 +436,8 @@
     else if (h === '#/inv/clog') openCntLog();
     else if (h.indexOf('#/inv/lot/') === 0) openCntUnit(decodeURIComponent(h.slice(10)));
     else if (h === '#/new') openNew();
+    else if (h === '#/hidden') openHidden();
+    else if (h === '#/rere') openRe();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
   }
@@ -528,8 +537,107 @@
         '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + Math.min(100, o.pct) + '%"></div></div>' +
         '<div class="pct">' + o.pct + '%</div></div>';
     }).join('');
+    html += '<div class="btns two" style="margin-top:18px"><a href="#/rere" class="alt">再修理の理由の集計</a><a href="#/hidden" class="alt">アプリに出していない受注</a></div>';
     $('main').innerHTML = html;
   }
+
+  // ---- アプリに出していない受注（バッテリー交換以外など） ----
+  function openHidden() {
+    setNav('#/list', '#/list');
+    $('title').textContent = 'アプリに出していない受注';
+    loading(true);
+    call('jobHidden').then(function (d) {
+      var html = '<div class="note">修理内容に「' + d.words.map(esc).join('」「') + '」が入っていない受注は、一覧・カレンダー・棚卸表の自動記入に出しません（修理内容が空欄なら出します）。受注シートの行はそのままです。言葉は「設定」シートの「アプリに出す修理内容の言葉」で変えられます</div>';
+      html += d.list.length ? d.list.map(function (o) {
+        return '<div class="card"><div class="row1"><a class="no" href="#/order/' + encodeURIComponent(o.key) + '">' + esc(o.no) + '</a><span class="date">' + esc(o.date) + '</span></div>' +
+          '<div class="name">' + esc(o.name) + '</div><div class="meta">' + esc([o.model, o.content].filter(Boolean).join('・')) + '</div>' +
+          '<div class="meta">出していない理由：' + esc(o.why) + '</div><button class="btn sub" data-hshow="' + esc(o.key) + '">アプリに出す</button></div>';
+      }).join('') : '<div class="empty">ありません</div>';
+      $('main').innerHTML = html;
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/hidden') return;
+    var t = e.target.closest('[data-hshow]'); if (!t) return;
+    loading(true);
+    call('jobHide', { key: t.getAttribute('data-hshow'), hide: false }).then(function () { listCache = null; okToast('アプリに出すようにしました'); openHidden(); })
+      .catch(function (er) { toast(er.message); loading(false); });
+  });
+
+  // ---- 再修理の理由の集計 ----
+  var reData = null, rePeriod = 'fy', reFilter = '';
+  function openRe() {
+    setNav('#/list', '#/list');
+    $('title').textContent = '再修理の理由';
+    if (reData) { renderRe(); return; }
+    loading(true);
+    call('reReasons').then(function (d) { reData = d; renderRe(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function reRows() {
+    var d = reData, fy = d.fy, today = d.today;
+    var ago = function (m) { var t = new Date(today); t.setMonth(t.getMonth() - m); return t.toISOString().slice(0, 10); };
+    var rng = { fy: [fy + '-04-01', (fy + 1) + '-03-31'], prev: [(fy - 1) + '-04-01', fy + '-03-31'], m3: [ago(3), '9999'], all: ['', '9999'] }[rePeriod];
+    return d.rows.filter(function (r) { return !r.date || (r.date >= rng[0] && r.date <= rng[1]); }).filter(function (r) { return rePeriod === 'all' || r.date; });
+  }
+  function reBars(title, groups, total, key, order) {
+    var keys = Object.keys(groups).sort(order || function (a, b) { return groups[b] - groups[a]; });
+    if (!keys.length) return '';
+    var max = groups[keys[0]] || 1;
+    return '<div class="h2">' + title + '</div>' + keys.map(function (k) {
+      var on = key && reFilter === key + '|' + k;
+      return '<div class="rbar' + (key ? ' tap' : '') + (on ? ' on' : '') + '"' + (key ? ' data-refilter="' + esc(key + '|' + k) + '"' : '') + '><div class="rl"><span>' + esc(k) + '</span><span class="rn">' + groups[k] + '件　' + Math.round(groups[k] / total * 100) + '%</span></div>' +
+        '<div class="rb"><div style="width:' + Math.max(3, groups[k] / max * 100) + '%"></div></div></div>';
+    }).join('');
+  }
+  function renderRe() {
+    var d = reData; if (!d) return;
+    var rows = reRows(), total = rows.length;
+    var html = '<div class="tabs">' + [['fy', '今年度'], ['prev', '前年度'], ['m3', '直近3か月'], ['all', '全部']].map(function (t) {
+      return '<button class="tab' + (rePeriod === t[0] ? ' on' : '') + '" data-reper="' + t[0] + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+    var none = rows.filter(function (r) { return !r.reason; });
+    html += '<div class="tiles"><div class="tile"><div class="v">' + total + '<small>件</small></div><div class="k">再修理</div></div>' +
+      '<div class="tile"><div class="v">' + (total - none.length) + '<small>件</small></div><div class="k">理由が入っている</div></div>' +
+      '<div class="tile"><div class="v">' + none.length + '<small>件</small></div><div class="k">理由がまだ</div></div></div>';
+    if (!total) { $('main').innerHTML = html + '<div class="empty">この期間の再修理はありません</div>'; return; }
+    var g = function (f) { var o = {}; rows.forEach(function (r) { var k = f(r); if (k) o[k] = (o[k] || 0) + 1; }); return o; };
+    var span = function (r) { var x = r.days; return x === null || x === undefined ? '元の修理が不明' : x <= 30 ? '1か月以内' : x <= 90 ? '1〜3か月' : x <= 180 ? '3〜6か月' : x <= 365 ? '6か月〜1年' : '1年より後'; };
+    html += '<div class="note">棒を押すと、その再修理の一覧が下に出ます</div>';
+    html += reBars('理由', g(function (r) { return r.reason || '（まだ入っていない）'; }), total, 'reason');
+    html += reBars('車種', g(function (r) { return r.model || '不明'; }), total, 'model');
+    html += reBars('元の修理のグレード', g(function (r) { return r.grade || '不明'; }), total, 'grade');
+    var SPANS = ['1か月以内', '1〜3か月', '3〜6か月', '6か月〜1年', '1年より後', '元の修理が不明'];
+    html += reBars('元の修理から何日後', g(span), total, 'span', function (a, b) { return SPANS.indexOf(a) - SPANS.indexOf(b); });
+    html += reBars('月', g(function (r) { return r.date ? r.date.slice(0, 7) : '日付未定'; }), total, 'month', function (a, b) { return b.localeCompare(a); });
+    // 一覧（棒を押したとき）／理由がまだのもの
+    var fk = reFilter.split('|')[0], fv = reFilter.split('|').slice(1).join('|');
+    var pick = { reason: function (r) { return r.reason || '（まだ入っていない）'; }, model: function (r) { return r.model || '不明'; }, grade: function (r) { return r.grade || '不明'; }, span: span, month: function (r) { return r.date ? r.date.slice(0, 7) : '日付未定'; } }[fk];
+    var list = pick ? rows.filter(function (r) { return pick(r) === fv; }) : none;
+    html += '<div class="h2">' + (pick ? esc(fv) + '（' + list.length + '件）<button type="button" class="mini" data-refilter="" style="margin-left:8px">理由がまだのものに戻す</button>' : '理由がまだの再修理（' + list.length + '件）') + '</div>';
+    html += list.length ? list.map(function (r) {
+      return '<div class="card"><div class="row1"><a class="no" href="#/order/' + encodeURIComponent(r.key) + '">' + esc(r.no) + '</a><span class="date">' + esc(r.date || '日付未定') + '</span></div>' +
+        '<div class="meta">' + esc([r.name, r.model, r.grade, r.parent ? '元 ' + r.parent + (r.parentDate ? '（' + r.parentDate + '）' : '') : '', r.days !== null && r.days !== undefined ? r.days + '日後' : ''].filter(Boolean).join('・')) + '</div>' +
+        ((r.content && r.content !== '再修理') || r.note ? '<div class="meta">受注シート：' + esc([r.content === '再修理' ? '' : r.content, r.note].filter(Boolean).join('／')) + '</div>' : '') +
+        '<select class="f" data-reset="' + esc(r.key) + '" style="margin-top:4px"><option value="">' + (r.reason ? '' : '理由を選ぶ') + '</option>' + d.choices.concat(r.reason && d.choices.indexOf(r.reason) < 0 ? [r.reason] : []).map(function (c) { return '<option' + (r.reason === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>' +
+        (r.memo ? '<div class="meta">メモ：' + esc(r.memo) + '</div>' : '') + '</div>';
+    }).join('') : '<div class="empty">' + (pick ? 'ありません' : '全部入っています') + '</div>';
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/rere') return;
+    var t;
+    if ((t = e.target.closest('[data-reper]'))) { rePeriod = t.getAttribute('data-reper'); renderRe(); return; }
+    if ((t = e.target.closest('[data-refilter]'))) { var v = t.getAttribute('data-refilter'); reFilter = reFilter === v ? '' : v; renderRe(); return; }
+  });
+  document.addEventListener('change', function (e) {
+    if (location.hash !== '#/rere' || !e.target.getAttribute || !e.target.getAttribute('data-reset')) return;
+    var key = e.target.getAttribute('data-reset'), reason = e.target.value;
+    if (!reason) return;
+    var row = reData.rows.filter(function (r) { return r.key === key; })[0];
+    call('reReason', { key: key, reason: reason, memo: row ? row.memo : '' }).then(function () {
+      if (row) row.reason = reason; okToast(key.split('/')[1] + '：' + reason); renderRe();
+    }).catch(function (er) { toast(er.message); });
+  });
   $('main').addEventListener('click', function (e) {
     var tab = e.target.closest('[data-tab]');
     if (tab) { listTab = tab.getAttribute('data-tab'); renderList(); return; }
@@ -544,7 +652,7 @@
     if (!force) { $('main').innerHTML = ''; openInline = ''; chargeData = null; cntData = null; chosenLane = ''; }
     loading(true);
     orderScanHandlers();
-    traceData = null;
+    traceData = null; reEdit = false;
     call('order', { key: key }).then(function (d) {
       current = d; renderOrder(true);
       call('cntTrace', { key: key }).then(function (t) { if (current && current.key === key) { traceData = t; renderOrder(false); } }).catch(function () { /* 古いサーバー */ });
@@ -559,18 +667,19 @@
     if (!t || !current || t.key !== current.key || !t.charges.length) return '';
     var total = t.units.reduce(function (a, u) { return a + u.n; }, 0);
     var h = '<div class="card"><div class="row1" data-traceopen="1" style="cursor:pointer"><span class="no">使ったモジュール ' + total + '本</span><span class="date">' + (traceOpen ? '閉じる' : 'くわしく') + '</span></div>';
-    h += '<div class="meta">' + t.units.map(function (u) { return esc(u.unitNo || 'ユニット不明') + ' ' + u.n + '本'; }).join('・') + (t.out ? '　出庫 ' + esc(t.out) : '') + '</div>';
+    var rgs = function (u) { return (u.ranges || []).length ? '（' + u.ranges.map(function (x) { return x.n + '本 ' + esc(x.range); }).join('・') + '）' : ''; };
+    h += '<div class="meta">' + t.units.map(function (u) { return esc(u.unitNo || 'ユニット不明') + ' ' + u.n + '本' + rgs(u); }).join('・') + (t.out ? '　出庫 ' + esc(t.out) : '') + '</div>';
     if (traceOpen) {
       h += t.units.map(function (u) {
         if (!u.unitNo) return '<div class="crow"><b>ユニット不明</b> ' + u.n + '本<div class="meta">取り込み時の在庫・ユニットを選ばずに入れた分</div></div>';
         var r = u.result;
-        return '<div class="crow"><a href="#/inv/lot/' + encodeURIComponent(u.unitNo) + '"><b>' + esc(u.unitNo) + '</b></a> から ' + u.n + '本<div class="meta">' +
+        return '<div class="crow"><a href="#/inv/lot/' + encodeURIComponent(u.unitNo) + '"><b>' + esc(u.unitNo) + '</b></a> から ' + u.n + '本' + rgs(u) + '<div class="meta">' +
           esc([u.kind, u.model, u.from ? u.from.split('/')[1] + ' の戻り' : u.supplier].filter(Boolean).join('・')) + '<br>' +
           (u.arrived ? '届いた ' + esc(u.arrived) + '　' : '') + (u.broke ? 'ばらした ' + esc(u.broke) : 'ばらした日：記録なし') +
           (r ? '<br>検査：' + esc(r.grade) + '　2年 ' + r['2年'] + '・1年 ' + r['1年'] + '・半年 ' + r['半年'] + '・ジャンク ' + r['ジャンク'] : '') + '</div></div>';
       }).join('');
       h += '<div class="lbl2">充電開始の記録</div>' + t.charges.map(function (c) {
-        return '<div class="meta">' + esc(c.at) + '　' + esc(c.by) + '　' + esc(c.shelf) + (c.n < 0 ? ' へ戻す ' + (-c.n) : ' から ' + c.n) + '本' + (c.unit ? '（' + esc(c.unit) + '）' : '') + '　' + esc(c.how) + '</div>';
+        return '<div class="meta">' + esc(c.at) + '　' + esc(c.by) + '　' + esc(c.shelf) + (c.n < 0 ? ' へ戻す ' + (-c.n) : ' から ' + c.n) + '本' + (c.unit || c.range ? '（' + esc([c.unit, c.range ? '数値 ' + c.range : ''].filter(Boolean).join('・')) + '）' : '') + '　' + esc(c.how) + '</div>';
       }).join('');
     }
     return h + '</div>';
@@ -589,7 +698,8 @@
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
       '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
-      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + traceHtml();
+      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + traceHtml();
+    if (d.hidden) html += '<div class="warnbox">この受注はアプリの一覧に出していません（' + esc(d.hidden) + '）<button class="btn sub" data-jobshow="1" style="margin-top:6px">アプリに出す</button></div>';
     var stage = '', section = '', firstOpen = '';
     var stages = {};
     d.items.forEach(function (it) {
@@ -615,9 +725,59 @@
         (it.result ? '' : '<button class="na-btn" data-na="' + it.id + '">該当<br>なし</button>') + '</div>';
       if (openInline === it.id && !it.result) html += inlineHtml(it);
     });
+    if (!d.hidden) html += '<div class="h2" style="margin-top:22px">この受注</div><div class="note">バッテリー交換ではない受注（インバーター・ヘッドライト磨きなど）は、一覧から外せます。受注シートの行はそのまま残ります</div>' +
+      '<button class="btn sub" data-jobhide="1">この受注をアプリに出さない</button>';
     $('main').innerHTML = html;
     if (scroll && firstOpen) { var el = $('it-' + firstOpen); if (el) el.scrollIntoView({ block: 'center' }); }
   }
+  // ---- 再修理の理由（S の受注） ----
+  var reEdit = false;
+  function reHtml() {
+    var d = current; if (!d || !d.rerepair || !d.re) return '';
+    var r = d.re;
+    if (r.reason && !reEdit) {
+      return '<div class="card"><div class="row1"><span class="no">再修理の理由</span><button type="button" class="mini" data-reedit="1">変える</button></div><div><b>' + esc(r.reason) + '</b></div>' +
+        (r.memo ? '<div class="meta">' + esc(r.memo) + '</div>' : '') + '<div class="meta">' + esc([r.by, r.at].filter(Boolean).join('　')) + (r.parent ? '　元の修理 ' + esc(String(r.parent).replace(/^.*\//, '')) : '') + '</div></div>';
+    }
+    return '<div class="card"><div class="row1"><span class="no">再修理の理由</span><span class="date">' + (r.reason ? '' : 'まだ入っていません') + '</span></div>' +
+      '<div class="opts" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">' + (r.choices || []).map(function (c) { return '<button type="button" class="mini' + (reEdit && reEdit.reason === c ? ' on' : '') + '" data-repick="' + esc(c) + '" style="' + (reEdit && reEdit.reason === c ? 'background:var(--navy);color:#fff' : '') + '">' + esc(c) + '</button>'; }).join('') + '</div>' +
+      '<input class="f" id="reMemo" placeholder="メモ（わかったこと・部品名など。なくても可）" value="' + esc(reEdit && reEdit.memo !== undefined ? reEdit.memo : (r.memo || '')) + '">' +
+      '<button class="btn" data-resave="1">理由を保存</button>' + (r.reason ? '<button class="btn sub" data-recancel="1">やめる</button>' : '') + '</div>';
+  }
+  document.addEventListener('click', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0) return;
+    var t;
+    if (e.target.closest('[data-reedit]')) { reEdit = { reason: current.re.reason, memo: current.re.memo }; renderOrder(false); return; }
+    if (e.target.closest('[data-recancel]')) { reEdit = false; renderOrder(false); return; }
+    if ((t = e.target.closest('[data-repick]'))) { var m0 = ($('reMemo') || {}).value; reEdit = { reason: t.getAttribute('data-repick'), memo: m0 }; renderOrder(false); return; }
+    if (e.target.closest('[data-resave]')) {
+      var reason = reEdit && reEdit.reason, memo = ($('reMemo') || {}).value || '', key = current.key;
+      if (!reason) { toast('理由を選んでください'); return; }
+      loading(true);
+      call('reReason', { key: key, reason: reason, memo: memo }).then(function (r) {
+        if (current && current.key === key) { current.re = r; reEdit = false; renderOrder(false); okToast('再修理の理由を保存しました'); }
+        reData = null;
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if (e.target.closest('[data-jobhide]')) {
+      var k1 = current.key;
+      confirmSheet(current.no + '（' + (current.content || '修理内容なし') + '）をアプリの一覧・カレンダーに出さないようにします。\n受注シートの行はそのまま残ります。あとで「アプリに出していない受注」から戻せます', '出さない').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('jobHide', { key: k1, hide: true }).then(function (r) {
+          listCache = null; okToast('アプリに出さないようにしました'); location.hash = '#/list';
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
+    if (e.target.closest('[data-jobshow]')) {
+      var k2 = current.key;
+      loading(true);
+      call('jobHide', { key: k2, hide: false }).then(function () { listCache = null; current.hidden = ''; renderOrder(false); okToast('アプリに出すようにしました'); })
+        .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+    }
+  });
 
   function inlineHtml(it) {
     if (it.type === 'スキャン') return it.id === 'C12' ? caseHtml() : it.id === 'C49' ? newModHtml() : chargeHtml();
@@ -1064,7 +1224,7 @@
     var html = '<div class="panel">' + chargeModeSeg();
     html += '<div><span class="cnt">' + d.have + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + '（' + esc(d.cat === '半年' ? '半年用' : '使用可能') + 'の棚から）</span></div>';
     if (d.from.length) html += '<div class="meta">出した棚：' + d.from.map(function (f) { return esc(f.label) + ' ' + f.n + '本'; }).join('・') + '</div>';
-    if (d.units && d.units.length) html += '<div class="meta">使ったユニット：' + d.units.map(function (u) { return esc(u.unit || 'わからない') + ' ' + u.n + '本'; }).join('・') + '</div>';
+    if (d.units && d.units.length) html += '<div class="meta">使ったユニット：' + d.units.map(function (u) { return esc(u.unit || 'わからない') + (u.rangeLabel ? '（' + esc(u.rangeLabel) + '）' : '') + ' ' + u.n + '本'; }).join('・') + '</div>';
     if (d.need && d.have >= d.need) {
       html += '<div class="big-ok">必要本数そろっています</div>';
     } else {
@@ -1077,8 +1237,8 @@
           '<input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0" placeholder="本">' +
           (cRows.length > 1 ? '<button class="btn sub" data-cdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
           (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' +
-            '<select class="f" data-crow="' + i + '" data-ck="unit" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
-            ((d.lots || {})[id] || []).filter(function (l) { return l.unit; }).map(function (l) { return '<option value="' + esc(l.unit) + '"' + (r.unit === l.unit ? ' selected' : '') + '>' + esc(l.unit) + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本</option>'; }).join('') +
+            '<select class="f" data-crow="' + i + '" data-ck="lot" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
+            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本</option>'; }).join('') +
             '</select>' : '') + '</div>';
       });
       html += '<button class="btn sub" data-cadd="1">＋ 行を足す（棚・ユニットが分かれたら）</button>';
@@ -1095,7 +1255,10 @@
   function cntSave(reason) {
     cRead();
     var key = current.key;
-    var rows = cRows.filter(function (r) { return Number(r.n) > 0; });
+    var rows = cRows.filter(function (r) { return Number(r.n) > 0; }).map(function (r) {
+      var a = String(r.lot || '').split('|');
+      return { cat: r.cat, grade: r.grade, rank: r.rank, n: r.n, unit: a[0] || '', range: a[1] || '' };
+    });
     if (!rows.length) { toast('本数を入れてください'); return; }
     if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('種類とランクを選んでください'); return; }
     loading(true);
@@ -1133,8 +1296,9 @@
   }
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (!current || !t.getAttribute || !t.getAttribute('data-crow') || t.getAttribute('data-ck') === 'n' || t.getAttribute('data-ck') === 'unit') { if (t.getAttribute && t.getAttribute('data-ck') === 'unit') cRead(); return; }
-    cRead(); renderOrder(false);
+    if (!current || !t.getAttribute || !t.getAttribute('data-crow') || t.getAttribute('data-ck') === 'n' || t.getAttribute('data-ck') === 'lot') { if (t.getAttribute && t.getAttribute('data-ck') === 'lot') cRead(); return; }
+    var cr = cRows[Number(t.getAttribute('data-crow'))]; if (cr) cr.lot = ''; // 棚が変わったらユニットは選び直し
+    cRead(); if (cr) cr.lot = ''; renderOrder(false);
   });
   // ---- 新品の修理：新品棚・新品ユニットから出す（C49） ----
   var newPlan = null;
@@ -1228,7 +1392,7 @@
       chargeMode = t.getAttribute('data-cmode'); try { localStorage.setItem('hvrc_chargeMode', chargeMode); } catch (er) { /* なくても動く */ }
       chargeData = null; cntData = null; loadCharge(); return;
     }
-    if ((t = e.target.closest('[data-ccat]'))) { cRead(); cRows[Number(t.getAttribute('data-ccat'))].cat = t.getAttribute('data-v'); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-ccat]'))) { cRead(); var cc = cRows[Number(t.getAttribute('data-ccat'))]; cc.cat = t.getAttribute('data-v'); cc.lot = ''; renderOrder(false); return; }
     if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: last.grade || '', rank: last.rank || '', unit: '', n: '' }); renderOrder(false); return; }
     if ((t = e.target.closest('[data-cdel]'))) { cRead(); cRows.splice(Number(t.getAttribute('data-cdel')), 1); renderOrder(false); return; }
     if ((t = e.target.closest('[data-csave]'))) { cntSave(''); return; }
@@ -1403,10 +1567,30 @@
     loading(true);
     call('cntInspectView').then(function (d) { ci.data = d; ci.unit = null; ci.bara = false; renderCntInspect(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
+  // 結果は行ごと：保証（2年・1年・半年）・種類・ランク・本数・数値（例 58〜60）。他社リビルドは行ごとに種類を変える
+  function ciNewRow(w) { return { w: w || '1年', grade: ci.grade || '', rank: '', n: '', lo: '', hi: '' }; }
+  function ciReset() { ci.rows = [ciNewRow('2年'), ciNewRow('1年'), ciNewRow('半年')]; ci.junk = ''; ci.note = ''; ci.broke = ''; }
   function ciTotal() {
-    var t = 0;
-    document.querySelectorAll('[data-ig]').forEach(function (el) { t += Number(el.value) || 0; });
+    var t = Number(ci.junk) || 0;
+    (ci.rows || []).forEach(function (r) { t += Number(r.n) || 0; });
     return t;
+  }
+  function ciSumText() {
+    var u = ci.unit, by = {};
+    (ci.rows || []).forEach(function (r) { if (Number(r.n) > 0) by[r.w] = (by[r.w] || 0) + Number(r.n); });
+    var parts = ['2年', '1年', '半年'].filter(function (w) { return by[w]; }).map(function (w) { return w + ' ' + by[w]; });
+    if (Number(ci.junk) > 0) parts.push('ジャンク ' + ci.junk);
+    return '合計 ' + ciTotal() + '本' + (u && u.n ? ' / ' + u.n + '本' : '') + (parts.length ? '（' + parts.join('・') + '）' : '');
+  }
+  function ciRowHtml(r, i) {
+    var sel = function (k, opts, ph) {
+      return '<select class="f" data-cir="' + i + '" data-ck="' + k + '"><option value="">' + ph + '</option>' + opts.map(function (o) { var v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o; return '<option value="' + v + '"' + (r[k] === v ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select>';
+    };
+    var num = function (k, ph, w) { return '<input class="f" type="number" inputmode="decimal" data-cir="' + i + '" data-ck="' + k + '" value="' + esc(r[k]) + '" placeholder="' + ph + '" style="min-width:0;' + (w ? 'flex:' + w : '') + '">'; };
+    return '<div class="crow"><div style="display:flex;gap:6px">' +
+      sel('w', [['2年', '2年用'], ['1年', '1年用'], ['半年', '半年用']], '保証') + sel('grade', CNT_G, '種類') + sel('rank', CNT_R, 'ランク') + '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;margin-top:4px">' + num('n', '本数', '1.1') + '<span class="meta" style="white-space:nowrap">本　数値</span>' + num('lo', 'から', 1) + '<span>〜</span>' + num('hi', 'まで', 1) +
+      ((ci.rows || []).length > 1 ? '<button class="btn sub" data-cidel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div></div>';
   }
   function renderCntInspect() {
     var d = ci.data; if (!d) return;
@@ -1420,45 +1604,55 @@
       html += '<button class="btn sub" data-cibara="1">ユニットなし（バラのモジュール）で入れる</button>';
       $('main').innerHTML = html; return;
     }
+    if (!ci.rows) ciReset();
     var u = ci.unit;
     html += '<div class="head"><div class="big">' + esc(u ? u.unitNo : 'ユニットなし（バラ）') + '</div><div class="meta">' + esc(u ? u.kind + '・' + u.model + (u.n ? '・' + u.n + '本' : '') : '') + '</div></div>';
-    html += '<div class="lbl2">種類</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
-    html += '<div class="lbl2">結果の本数（空欄は0）</div><table class="igrid"><tr><th></th>' + CNT_R.map(function (r) { return '<th>' + r + '</th>'; }).join('') + '</tr>';
-    [['2年', '2年保証用'], ['1年', '1年保証用'], ['半年', '半年保証用']].forEach(function (w) {
-      html += '<tr><td class="rk">' + w[1] + '</td>' + CNT_R.map(function (r) { return '<td><input type="number" inputmode="numeric" data-ig="' + w[0] + '" data-ir="' + r + '"></td>'; }).join('') + '</tr>';
-    });
-    html += '<tr><td class="rk">ジャンク</td><td colspan="4"><input type="number" inputmode="numeric" data-ig="junk" id="ciJunk" style="width:50%"></td></tr></table>';
-    html += '<div class="panel" id="ciSum">合計 0本' + (u && u.n ? ' / ' + u.n + '本' : '') + '</div>';
+    html += '<div class="lbl2">種類（全部同じならここで1回。他社リビルドなどでバラバラなら、下の行ごとに変える）</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
+    html += '<div class="lbl2">結果（同じ保証・種類・ランクでも、数値が違えば行を分ける）</div>';
+    html += ci.rows.map(ciRowHtml).join('');
+    html += '<button class="btn sub" data-ciadd="1">＋ 行を足す</button>';
+    html += '<div class="lbl2">ジャンク</div><input class="f" type="number" inputmode="numeric" data-cij="1" value="' + esc(ci.junk) + '" placeholder="本数">';
+    html += '<div class="panel" id="ciSum">' + esc(ciSumText()) + '</div>';
     var nw = new Date(), pad = function (n) { return ('0' + n).slice(-2); };
-    html += '<div class="lbl2">ばらした日時</div><input class="f" type="datetime-local" id="ciBroke" value="' + nw.getFullYear() + '-' + pad(nw.getMonth() + 1) + '-' + pad(nw.getDate()) + 'T' + pad(nw.getHours()) + ':' + pad(nw.getMinutes()) + '">';
-    html += '<div class="lbl2">メモ（なくても可）</div><input class="f" id="ciNote">';
+    if (!ci.broke) ci.broke = nw.getFullYear() + '-' + pad(nw.getMonth() + 1) + '-' + pad(nw.getDate()) + 'T' + pad(nw.getHours()) + ':' + pad(nw.getMinutes());
+    html += '<div class="lbl2">ばらした日時</div><input class="f" type="datetime-local" id="ciBroke" value="' + esc(ci.broke) + '">';
+    html += '<div class="lbl2">メモ（なくても可）</div><input class="f" id="ciNote" value="' + esc(ci.note || '') + '">';
     html += '<button class="btn" data-cisave="1">この結果で登録する</button><button class="btn sub" data-ciback="1">ユニットを選び直す</button>';
     $('main').innerHTML = html;
   }
   function ciSave() {
     var u = ci.unit, total = ciTotal();
-    if (!ci.grade) { toast('種類を選んでください'); return; }
     if (!ci.src) { toast('どこ（未計測 G2・G3）から検査したかを選んでください'); return; }
+    var rows = ci.rows.filter(function (r) { return Number(r.n) > 0; });
     if (!total) { toast('本数を入れてください'); return; }
-    var cells = { '2年': {}, '1年': {}, '半年': {} };
-    document.querySelectorAll('[data-ir]').forEach(function (el) { if (Number(el.value) > 0) cells[el.getAttribute('data-ig')][el.getAttribute('data-ir')] = Number(el.value); });
-    var junk = Number(($('ciJunk') || {}).value) || 0;
-    var msg = (u ? u.unitNo : 'ユニットなし') + '：合計 ' + total + '本' + (u && u.n && u.n !== total ? '（このユニットは ' + u.n + '本です）' : '') + '\nこの結果で登録しますか？';
+    if (rows.some(function (r) { return !r.grade; })) { toast('種類（G2-1〜G3）を選んでください'); return; }
+    if (rows.some(function (r) { return !r.rank; })) { toast('ランクを選んでください'); return; }
+    var lines = rows.map(function (r) { return r.w + '保証用 ' + r.grade + ' ' + r.rank + '：' + r.n + '本' + (r.lo || r.hi ? '（' + (r.lo || r.hi) + (r.lo && r.hi && r.lo !== r.hi ? '〜' + r.hi : '') + '）' : ''); });
+    if (Number(ci.junk) > 0) lines.push('ジャンク：' + ci.junk + '本');
+    var msg = (u ? u.unitNo : 'ユニットなし') + '：合計 ' + total + '本' + (u && u.n && u.n !== total ? '（このユニットは ' + u.n + '本です）' : '') + '\n' + lines.join('\n') + '\nこの結果で登録しますか？';
     confirmSheet(msg, '登録する').then(function (ok) {
       if (!ok) return;
       loading(true);
-      call('cntInspect', { unitNo: u ? u.unitNo : '', grade: ci.grade, src: ci.src, cells: cells, junk: junk, note: ($('ciNote') || {}).value || '', brokeAt: ($('ciBroke') || {}).value || '' }).then(function (d) {
-        ci.data = d; ci.last = d.saved; ci.unit = null; ci.bara = false; invData = null;
+      call('cntInspect', { unitNo: u ? u.unitNo : '', src: ci.src, rows: rows, junk: Number(ci.junk) || 0, note: ci.note || '', brokeAt: ci.broke || '' }).then(function (d) {
+        ci.data = d; ci.last = d.saved; ci.unit = null; ci.bara = false; ci.rows = null; invData = null;
         if (d.notes && d.notes.length) toast(d.notes.join('／'));
         renderCntInspect(); window.scrollTo(0, 0);
       }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     });
   }
-  document.addEventListener('input', function (e) {
-    if (location.hash !== '#/inv/cinsp' || !e.target.getAttribute || !e.target.getAttribute('data-ig')) return;
-    var el = $('ciSum'); if (el) el.textContent = '合計 ' + ciTotal() + '本' + (ci.unit && ci.unit.n ? ' / ' + ci.unit.n + '本' : '');
-  });
+  function ciInput(e) {
+    if (location.hash !== '#/inv/cinsp' || !e.target.getAttribute) return;
+    var t = e.target, i = t.getAttribute('data-cir');
+    if (i !== null && ci.rows && ci.rows[Number(i)]) ci.rows[Number(i)][t.getAttribute('data-ck')] = t.value;
+    else if (t.getAttribute('data-cij')) ci.junk = t.value;
+    else if (t.id === 'ciNote') ci.note = t.value;
+    else if (t.id === 'ciBroke') ci.broke = t.value;
+    else return;
+    var el = $('ciSum'); if (el) el.textContent = ciSumText();
+  }
+  document.addEventListener('input', ciInput);
+  document.addEventListener('change', ciInput);
 
   // ---- 本数：合わせる（棚卸し）・その他の出し入れ ----
   var ca = { now: null, ids: [] };
@@ -1502,7 +1696,7 @@
       html += '<table class="t"><tr><td style="white-space:nowrap">届いた</td><td>' + esc(u.arrived || '記録なし') + '</td></tr><tr><td style="white-space:nowrap">ばらした</td><td>' + esc(u.broke || '記録なし') + '</td></tr><tr><td style="white-space:nowrap">検査の登録</td><td>' + esc(u.inspected || 'まだ') + '</td></tr>' +
         (r ? '<tr><td style="white-space:nowrap">検査の結果</td><td>' + esc(r.grade) + '　2年 ' + r['2年'] + '・1年 ' + r['1年'] + '・半年 ' + r['半年'] + '・ジャンク ' + r['ジャンク'] + '（' + r.total + '本）<div class="meta">' + esc(r.detail) + '　' + esc(r.by) + '</div></td></tr>' : '') + '</table>';
       html += '<div class="h2">使った修理</div>' + (u.used.length ? '<table class="t">' + u.used.map(function (x) { return '<tr><td><a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a></td><td class="meta">' + esc(x.at) + '</td><td class="n">' + x.n + '本</td></tr>'; }).join('') + '</table>' : '<div class="empty">まだ使っていません</div>');
-      html += '<div class="h2">まだ残っている</div>' + (u.left.length ? '<table class="t">' + u.left.map(function (x) { return '<tr><td>' + esc(x.where) + '</td><td class="n">' + x.n + '本</td></tr>'; }).join('') + '</table>' : '<div class="empty">ありません</div>');
+      html += '<div class="h2">まだ残っている</div>' + (u.left.length ? '<table class="t">' + u.left.map(function (x) { return '<tr><td>' + esc(x.where) + (x.range ? '<div class="meta">数値 ' + esc(x.range) + '</div>' : '') + '</td><td class="n">' + x.n + '本</td></tr>'; }).join('') + '</table>' : '<div class="empty">ありません</div>');
       $('main').innerHTML = html;
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
@@ -1513,7 +1707,7 @@
     loading(true);
     call('cntLog').then(function (d) {
       $('main').innerHTML = d.log.length ? '<table class="t"><tr><th>日時</th><th>動き</th><th style="text-align:right">本数</th></tr>' + d.log.map(function (x) {
-        return '<tr><td class="meta">' + esc(x.at) + '<br>' + esc(x.by) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + '<div class="meta">' + esc(x.key) + (x.unit ? '　<a href="#/inv/lot/' + encodeURIComponent(x.unit) + '">' + esc(x.unit) + '</a>' : '') + '　' + esc(x.why) + '</div></td><td class="n">' + x.n + '</td></tr>';
+        return '<tr><td class="meta">' + esc(x.at) + '<br>' + esc(x.by) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + '<div class="meta">' + esc(x.key) + (x.unit ? '　<a href="#/inv/lot/' + encodeURIComponent(x.unit) + '">' + esc(x.unit) + '</a>' : '') + (x.range ? '　数値 ' + esc(x.range) : '') + '　' + esc(x.why) + '</div></td><td class="n">' + x.n + '</td></tr>';
       }).join('') + '</table>' : '<div class="empty">まだありません</div>';
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
@@ -1523,30 +1717,19 @@
       if ((t = e.target.closest('[data-ciu]'))) {
         var no = t.getAttribute('data-ciu');
         ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
-        ci.src = ci.unit.src || ''; ci.grade = ''; renderCntInspect(); window.scrollTo(0, 0); return;
+        ci.src = ci.unit.src || ''; ci.grade = ''; ci.rows = null; renderCntInspect(); window.scrollTo(0, 0); return;
       }
-      if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; renderCntInspect(); return; }
-      if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; ci.rows = null; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; ci.rows = null; renderCntInspect(); return; }
       if ((t = e.target.closest('[data-cig]'))) {
-        var keep = {}; document.querySelectorAll('[data-ig]').forEach(function (el) { keep[el.getAttribute('data-ig') + (el.getAttribute('data-ir') || '')] = el.value; });
-        var note = ($('ciNote') || {}).value;
-        var brk = ($('ciBroke') || {}).value;
+        var old = ci.grade;
         ci.grade = t.getAttribute('data-cig'); if (!ci.src) ci.src = ci.grade === 'G3' ? '未計測/G3' : '未計測/G2';
-        renderCntInspect();
-        document.querySelectorAll('[data-ig]').forEach(function (el) { var k = el.getAttribute('data-ig') + (el.getAttribute('data-ir') || ''); if (keep[k]) el.value = keep[k]; });
-        if (note) $('ciNote').value = note;
-        if (brk) $('ciBroke').value = brk;
-        var el2 = $('ciSum'); if (el2) el2.textContent = '合計 ' + ciTotal() + '本' + (ci.unit && ci.unit.n ? ' / ' + ci.unit.n + '本' : '');
-        return;
+        (ci.rows || []).forEach(function (r) { if (!r.grade || r.grade === old) r.grade = ci.grade; });
+        renderCntInspect(); return;
       }
-      if ((t = e.target.closest('[data-cisrc]'))) {
-        var keep2 = {}; document.querySelectorAll('[data-ig]').forEach(function (el) { keep2[el.getAttribute('data-ig') + (el.getAttribute('data-ir') || '')] = el.value; });
-        var brk2 = ($('ciBroke') || {}).value, note2 = ($('ciNote') || {}).value;
-        ci.src = t.getAttribute('data-cisrc'); renderCntInspect();
-        if (brk2) $('ciBroke').value = brk2; if (note2) $('ciNote').value = note2;
-        document.querySelectorAll('[data-ig]').forEach(function (el) { var k = el.getAttribute('data-ig') + (el.getAttribute('data-ir') || ''); if (keep2[k]) el.value = keep2[k]; });
-        return;
-      }
+      if ((t = e.target.closest('[data-cisrc]'))) { ci.src = t.getAttribute('data-cisrc'); renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-ciadd]'))) { var lw = ci.rows.length ? ci.rows[ci.rows.length - 1] : null; var nr = ciNewRow(lw ? lw.w : '1年'); if (lw) { nr.grade = lw.grade; nr.rank = lw.rank; } ci.rows.push(nr); renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-cidel]'))) { ci.rows.splice(Number(t.getAttribute('data-cidel')), 1); renderCntInspect(); return; }
       if ((t = e.target.closest('[data-cisave]'))) { ciSave(); return; }
     }
     if (h === '#/inv/cadj') {
@@ -1913,7 +2096,9 @@
     html += '<label class="f" for="nTel">電話番号</label><input class="f" id="nTel" type="tel" inputmode="tel" autocomplete="off" placeholder="090-1234-5678">';
     html += '<div id="nLook"></div>';
     html += '<div data-only="re"><div class="lbl2">元の修理 <span class="req">必須</span>（電話番号を入れると候補が出ます）</div><div id="nParentList"></div>' +
-      '<input class="f" id="nParentNo" autocomplete="off" autocapitalize="characters" placeholder="修理＃を直接入れる（例：R123　前の年度は 2025/Ⅺ012）"><div id="nParentSel"></div></div>';
+      '<input class="f" id="nParentNo" autocomplete="off" autocapitalize="characters" placeholder="修理＃を直接入れる（例：R123　前の年度は 2025/Ⅺ012）"><div id="nParentSel"></div>' +
+      '<label class="f" for="nReReason">再修理の理由（わかれば。あとから修理の画面でも入れられます）</label><select class="f" id="nReReason"><option value="">あとで入れる</option>' +
+      (d.reChoices || []).map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>';
     html += '<label class="f" for="nName">お名前・会社名 <span class="req">必須</span></label><input class="f" id="nName" autocomplete="off">';
     html += nSeg('sex', d.sex, nf.sex);
     html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div>';
@@ -2165,6 +2350,7 @@
       store: nf.store, kubun: nf.kubun, model: nVal('nModel'), grade: nf.grade, amount: nVal('nAmount'), payment: nf.payment,
       content: nVal('nContent'), contact: nVal('nContact'), zip: nVal('nZip'), address: nVal('nAddr'), birth: nVal('nBirth'),
       mileage: nVal('nMile'), referral: nVal('nRef'), parentKey: nf.parentKey, parent: nVal('nParentNo'), note: nVal('nNote'),
+      reReason: nf.kind === '再修理' && $('nReReason') ? $('nReReason').value : '',
     };
   }
   function nSave(force) {
