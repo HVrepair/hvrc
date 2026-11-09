@@ -95,6 +95,10 @@
   .na-btn { flex: 0 0 auto; border: none; border-left: 1px solid var(--line); background: #FAFAF8; color: var(--sub); font-size: 12px; padding: 0 10px; width: 64px; }
   .item.busy { opacity: .5; pointer-events: none; }
   .item.pending .by { color: var(--blue); }
+  .item .box { touch-action: none; }
+  .item.swipe { border-color: var(--green); box-shadow: 0 0 0 2px rgba(46,125,79,.25) inset; }
+  .item.swipe .box { background: #DDF0E3; border-color: var(--green); }
+  .sheet input.f { margin: 8px 0; }
 
   /* マイページ */
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -130,6 +134,7 @@
   .panel .cnt { font-size: 22px; font-weight: 700; color: var(--navy); }
   .lanes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
   .lanes button { padding: 8px 0; border-radius: 8px; border: 1px solid var(--line); background: #fff; font-weight: 700; color: var(--navy); }
+  .lanes button small { display: block; font-size: 10px; color: #F28C28; line-height: 1; }
   .lanes button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
   .mlist { margin-top: 8px; }
   .mlist .m { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -207,6 +212,20 @@
   .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
   .legend i { display: inline-block; width: 12px; height: 6px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
   .card .sbar { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  /* 在庫表 */
+  .ztwrap { overflow-x: auto; }
+  .zt { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 15px; margin-bottom: 12px; }
+  .zt th { background: var(--navy); color: #fff; font-size: 13px; padding: 7px 4px; text-align: center; font-weight: 700; }
+  .zt td { padding: 7px 4px; text-align: center; border-top: 1px solid var(--line); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .zt td.rk { text-align: left; padding-left: 10px; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  .zt td.sum { background: #FFF4E8; color: #C2410C; }
+  .zt td.z { color: #C5CAD1; font-weight: 400; }
+  .zt tr.grp td { background: #EEF1F4; color: var(--navy); text-align: left; padding-left: 10px; font-size: 13px; font-weight: 800; }
+  .zt tr.sub td { background: #F7F8F9; }
+  .zt tr.tot td { background: #FDE9D4; border-top: 2px solid #F28C28; }
+  .zt tr.one td.memo { font-size: 12px; font-weight: 400; color: var(--sub); text-align: left; }
+  .zt tr.new td.rk { color: #C2410C; }
+  .zt.mon td.up { color: var(--green); } .zt.mon td.down { color: #B42318; }
   /* 在庫の一目表 */
   .board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
   .bcell { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
@@ -219,6 +238,7 @@
   .bcell.new { border-color: #F28C28; }
   .bcell.new .g, .bcell.new .v { color: #C2410C; }
   .sheet p { white-space: pre-wrap; }
+  .verwarn { background: #FDECEA; color: #B42318; font-size: 13px; font-weight: 700; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top)); }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(243,244,241,.7); z-index: 40; font-size: 15px; color: var(--sub); }
 </style>
 </head>
@@ -254,6 +274,8 @@
   'use strict';
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
+  // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
+  var SCREEN_VERSION = '2026-11-09f';
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
   var token = '';
@@ -328,7 +350,7 @@
     $('lbtn').disabled = true; $('lerr').textContent = '';
     call('login', { loginId: id, password: pw, device: navigator.userAgent.indexOf('iPhone') >= 0 ? 'iPhone' : (navigator.userAgent.indexOf('iPad') >= 0 ? 'iPad' : (navigator.userAgent.indexOf('Android') >= 0 ? 'Android' : 'PC')) })
       .then(function (d) {
-        saveToken(d.token); me = d.me; APP_VERSION = d.version || APP_VERSION; $('lpw').value = '';
+        saveToken(d.token); me = d.me; APP_VERSION = d.version || APP_VERSION; versionCheck(); $('lpw').value = '';
         $('login').classList.add('hidden'); $('app').classList.remove('hidden');
         route();
       })
@@ -350,6 +372,16 @@
     Array.prototype.forEach.call(document.querySelectorAll('nav.tabbar button'), function (b) { b.classList.toggle('on', b.getAttribute('data-nav') === tab); });
     backTo = back || '';
     $('back').classList.toggle('hidden', !back);
+  }
+  // 画面（GitHub の index.html）がサーバーより古いときは、上に注意を出す
+  function versionCheck() {
+    var old = document.getElementById('verWarn'); if (old) old.remove();
+    if (!APP_VERSION || !SCREEN_VERSION || SCREEN_VERSION >= APP_VERSION) return;
+    var d = document.createElement('div');
+    d.id = 'verWarn';
+    d.className = 'verwarn';
+    d.innerHTML = '画面が古い版です（画面 ' + esc(SCREEN_VERSION) + '／サーバー ' + esc(APP_VERSION) + '）。アプリを閉じて開き直してください。直らなければ管理者へ（GitHub の index.html の更新）';
+    var app = $('app'); if (app) app.insertBefore(d, app.firstChild);
   }
   function okToast(msg) { var t = $('toast'); toast(msg); t.classList.add('ok'); clearTimeout(okToast._t); okToast._t = setTimeout(function () { t.classList.remove('ok'); }, 4000); }
 
@@ -382,6 +414,7 @@
     else if (h.indexOf('#/inv/dis/') === 0) openUnit(decodeURIComponent(h.slice(10)));
     else if (h === '#/inv/insp') openInspect(false);
     else if (h === '#/inv/stock') openInspect(true);
+    else if (h === '#/inv/pre') openPre();
     else if (h === '#/new') openNew();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
@@ -453,7 +486,7 @@
   });
 
   // ---- 一覧 ----
-  var TABS = [['today', '今日'], ['upcoming', 'これから'], ['open', '進行中'], ['recent', '最近の完了']];
+  var TABS = [['today', '今日'], ['upcoming', 'これから'], ['open', '進行中'], ['hold', '日付未定'], ['recent', '最近の完了']];
   function loadList(force) {
     setNav('#/list', '');
     $('title').textContent = (me ? me.name + 'さん　' : '') + '修理の一覧';
@@ -470,7 +503,7 @@
     }).join('') + '</div>';
     html += '<div class="updated">' + esc(d.now) + ' 時点</div>';
     var list = d[listTab] || [];
-    if (!list.length) html += '<div class="empty">' + ({ today: '今日の修理はありません', upcoming: 'これからの修理はありません', open: '進行中の修理はありません', recent: '最近の完了はありません' })[listTab] + '</div>';
+    if (!list.length) html += '<div class="empty">' + ({ today: '今日の修理はありません', upcoming: 'これからの修理はありません', open: '進行中の修理はありません', recent: '最近の完了はありません', hold: '日付が未定の修理はありません' })[listTab] + '</div>';
     html += list.map(function (o) {
       var full = o.pct >= 100;
       return '<div class="card tap" data-key="' + esc(o.key) + '">' +
@@ -507,11 +540,12 @@
     $('title').textContent = d.no + '　' + d.name;
     var full = d.pct >= 100;
     var html = '<div class="head"><div class="big">' + esc(d.no) + '　' + esc(d.name) + '</div>' +
-      '<div class="meta">' + esc(d.date) + '　' + esc([d.model, d.need ? d.need + '本' : '', d.grade].filter(Boolean).join('・')) + '</div>' +
+      '<div class="meta">' + esc(d.date) + (d.time ? ' ' + esc(d.time) + '〜' : '') + ' <button type="button" class="mini" data-redate="1">日程を変更</button>　' + esc([d.model, d.need ? d.need + '本' : '', d.grade].filter(Boolean).join('・')) + '</div>' +
       '<div class="chips"><span class="chip kind">' + esc(d.kind) + '</span><span class="chip ' + (full ? 'done' : 'state') + '">' + esc(d.state) + '</span>' +
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
-      '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>';
+      '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
+      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>';
     var stage = '', section = '', firstOpen = '';
     var stages = {};
     d.items.forEach(function (it) {
@@ -526,8 +560,10 @@
       if (!it.result && !firstOpen) firstOpen = it.id;
       var cls = it.result === '済' ? ' done' : (it.result === '該当なし' ? ' na' : '');
       var mark = it.result === '済' ? '✓' : (it.result === '該当なし' ? 'ー' : '');
-      var badge = it.type === '自動' ? '<span class="badge auto">自動化予定</span>' : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : 'モジュールを読む') + '</span>' : '');
-      var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (it.value ? it.value + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
+      var badge = it.type === '自動' ? '<span class="badge auto">自動化予定</span>' : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
+      var val = it.value;
+      if (it.id === 'C49' && val) { var pm = /棚から(\d+)本・ユニット(\d+)台・余り(\d+)本/.exec(val); if (pm) val = newPlanWords({ fromShelf: +pm[1], units: +pm[2], toShelf: +pm[3] }, '').replace(/<\/?b>/g, '').replace('開けて 本使い、', '開けて使い、'); }
+      var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
       if (it.pending) by += '　送信中…';
       html += '<div class="item' + cls + (it.pending ? ' pending' : '') + '" id="it-' + it.id + '">' +
         '<button class="main" data-item="' + it.id + '"><span class="box">' + mark + '</span><span><div class="lbl">' + esc(it.label) + badge + '</div>' +
@@ -540,7 +576,7 @@
   }
 
   function inlineHtml(it) {
-    if (it.type === 'スキャン') return it.id === 'C12' ? caseHtml() : chargeHtml();
+    if (it.type === 'スキャン') return it.id === 'C12' ? caseHtml() : it.id === 'C49' ? newModHtml() : chargeHtml();
     if (it.type === '選択') {
       return '<div class="inline"><div class="opts">' + ['現金', 'カード', '振込', '掛け振込'].map(function (p) {
         return '<button class="opt" data-pay="' + it.id + '" data-v="' + p + '">' + p + '</button>';
@@ -631,11 +667,163 @@
       if (it.type === '選択' || it.type === '入力') { openInline = openInline === itemId ? '' : itemId; renderOrder(false); return; }
       if (it.type === 'スキャン') {
         openInline = openInline === itemId ? '' : itemId;
-        if (openInline === 'C04') loadCharge(); else renderOrder(false);
+        if (openInline === 'C04') loadCharge(); else if (openInline === 'C49') loadNewPlan(); else renderOrder(false);
         return;
       }
       send(itemId, '済');
     }
+  });
+
+  // ---- 日程の変更 ----
+  function redateSheet() {
+    return new Promise(function (resolve) {
+      var bg = document.createElement('div');
+      bg.className = 'sheet-bg';
+      bg.innerHTML = '<div class="sheet"><p><b>日程を変更</b>（' + esc(current.no) + '　今は ' + esc(current.date) + '）</p>' +
+        '<input class="f" type="date" id="rdDate" value="' + esc(current.dateIso || '') + '">' +
+        '<div class="meta">開始時刻（わかれば。消すと時刻なし）</div><input class="f" type="time" step="900" id="rdTime" value="' + esc(current.time ? ('0' + current.time).slice(-5) : '') + '">' +
+        '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:4px 0 12px"><input type="checkbox" id="rdHold" style="width:22px;height:22px"> 日付を未定にする（受注シートは「保留」）</label>' +
+        '<div class="two"><button data-a="0">やめる</button><button class="danger" data-a="1">変更する</button></div></div>';
+      bg.addEventListener('click', function (e) {
+        var a = e.target.getAttribute('data-a');
+        if (e.target === bg || a === '0') { bg.remove(); resolve(null); }
+        if (a === '1') { var r = { date: $('rdDate').value, hold: $('rdHold').checked, time: $('rdTime').value }; bg.remove(); resolve(r); }
+      });
+      document.body.appendChild(bg);
+    });
+  }
+  document.addEventListener('click', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0 || !e.target.closest('[data-redate]')) return;
+    redateSheet().then(function (r) {
+      if (!r) return;
+      if (!r.hold && !r.date) { toast('新しい修理日を選んでください'); return; }
+      var key = current.key;
+      loading(true);
+      call('orderDate', { key: key, date: r.date, hold: r.hold, time: r.time }).then(function (d) {
+        listCache = null; calData = null;
+        if (current && current.key === key) { current = d; renderOrder(false); }
+        okToast((d.notes || []).join('。'));
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+    });
+  });
+
+  // ---- なぞってチェック：左の□を押したまま上下になぞると、通った項目にまとめてチェック ----
+  var swipe = null, swipeEat = false;
+  function swipeOk(it) { return it && it.visible && !it.result && !it.pending && (it.type === 'チェック' || it.type === '自動'); }
+  function swipeAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var row = el && el.closest ? el.closest('.item') : null;
+    var btn = row ? row.querySelector('[data-item]') : null;
+    return btn ? btn.getAttribute('data-item') : '';
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0) return;
+    var box = e.target.closest && e.target.closest('.item .box');
+    if (!box) return;
+    var id = box.closest('.item').querySelector('[data-item]').getAttribute('data-item');
+    swipe = { ids: [], seen: {}, start: id };
+    swipeAdd(id);
+  });
+  function swipeAdd(id) {
+    if (!swipe || !id || swipe.seen[id]) return;
+    swipe.seen[id] = true;
+    var it = current.items.filter(function (x) { return x.id === id; })[0];
+    if (!swipeOk(it)) return;
+    swipe.ids.push(id);
+    var row = $('it-' + id); if (row) row.classList.add('swipe');
+    if (swipe.ids.length > 1 && navigator.vibrate) navigator.vibrate(8);
+  }
+  document.addEventListener('pointermove', function (e) { if (swipe) swipeAdd(swipeAt(e.clientX, e.clientY)); });
+  function swipeEnd() {
+    if (!swipe) return;
+    var s = swipe; swipe = null;
+    Array.prototype.forEach.call(document.querySelectorAll('.item.swipe'), function (r) { r.classList.remove('swipe'); });
+    var moved = Object.keys(s.seen).length > 1;
+    if (!moved) return; // ふつうのタップ：いつもの押し方で動く
+    swipeEat = true; setTimeout(function () { swipeEat = false; }, 400);
+    s.ids.forEach(function (id) { send(id, '済'); });
+    if (s.ids.length) okToast(s.ids.length + '項目にチェックしました');
+  }
+  document.addEventListener('pointerup', swipeEnd);
+  document.addEventListener('pointercancel', swipeEnd);
+  // なぞったあとの「クリック」で、最初の項目がもう一度押されないように
+  document.addEventListener('click', function (e) { if (swipeEat) { e.stopPropagation(); e.preventDefault(); swipeEat = false; } }, true);
+
+  // ---- アプリの通知（Web Push） ----
+  //   GitHub に置いた画面をホーム画面に追加したアプリで使う（iPhone は iOS 16.4 以上）
+  var pushState = { checked: false, supported: false, on: false, msg: '' };
+  var IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  var IS_STANDALONE = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  function kvSet(key, val) {
+    return new Promise(function (resolve) {
+      try {
+        var req = indexedDB.open('hvrc', 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore('kv'); };
+        req.onsuccess = function () { try { var tx = req.result.transaction('kv', 'readwrite'); tx.objectStore('kv').put(val, key); tx.oncomplete = function () { resolve(true); }; tx.onerror = function () { resolve(false); }; } catch (e) { resolve(false); } };
+        req.onerror = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+  function swReady() {
+    if (IN_GAS || !('serviceWorker' in navigator)) return Promise.reject(new Error('この画面では通知を使えません（ホーム画面の「HVRC業務」アプリから開いてください）'));
+    return navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; });
+  }
+  if (!IN_GAS && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) { /* なくても動く */ } }
+  function b64uToBytes(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+    var raw = atob(s), out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function pushCheck() {
+    pushState.supported = !IN_GAS && ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+    if (!pushState.supported) {
+      pushState.msg = IN_GAS ? 'この画面（Googleのページ）では通知を使えません。ホーム画面の「HVRC業務」アプリから設定してください'
+        : (IS_IOS && !IS_STANDALONE ? 'iPhoneは、Safariの「ホーム画面に追加」で入れたアプリから開くと設定できます（iOS 16.4以上）' : 'この端末・ブラウザは通知に対応していません');
+      pushState.checked = true; return Promise.resolve();
+    }
+    return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      pushState.on = !!sub && Notification.permission === 'granted';
+      pushState.msg = Notification.permission === 'denied' ? '通知が「許可しない」になっています。端末の設定 → 通知 →「HVRC業務」で許可してください' : '';
+      pushState.checked = true;
+    }).catch(function (e) { pushState.msg = e.message; pushState.checked = true; });
+  }
+  function pushBoxHtml() {
+    if (!pushState.checked) { pushCheck().then(function () { var b = $('pushBox'); if (b) b.innerHTML = pushBoxHtml(); }); return '<div class="meta">確認中…</div>'; }
+    var h = '<div class="meta">新しい受注・再修理が登録されると、この端末に通知が届きます（自分で登録したものは届きません）。</div>';
+    if (pushState.msg) h += '<div class="warnbox" style="margin-top:8px">' + esc(pushState.msg) + '</div>';
+    if (!pushState.supported) return h;
+    if (pushState.on) h += '<div class="okmsg" style="margin-top:8px">この端末で通知を受け取っています</div><div class="two" style="margin-top:8px"><button type="button" class="btn sub" style="margin:0" data-push="test">テスト通知を送る</button><button type="button" class="btn sub" style="margin:0" data-push="off">通知をやめる</button></div>';
+    else h += '<button type="button" class="btn" data-push="on">この端末で通知を受け取る</button>';
+    return h;
+  }
+  function pushOn() {
+    // 「許可」の確認は、ボタンを押した流れの中ですぐに出す（iPhoneの決まり）
+    var perm = Notification.requestPermission();
+    var keyP = call('pushStatus', {});
+    return Promise.all([perm, keyP, swReady()]).then(function (a) {
+      if (a[0] !== 'granted') throw new Error('通知が許可されませんでした。端末の設定 → 通知 →「HVRC業務」で許可してください');
+      return a[2].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(a[1].publicKey) });
+    }).then(function (sub) {
+      return call('pushSubscribe', { sub: JSON.parse(JSON.stringify(sub)), device: navigator.userAgent });
+    }).then(function (r) { return kvSet('pushSecret', r.secret); }).then(function () {
+      pushState.on = true; pushState.msg = ''; okToast('この端末で通知を受け取るようにしました');
+    });
+  }
+  function pushOff() {
+    return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      if (!sub) return;
+      var ep = sub.endpoint;
+      return sub.unsubscribe().then(function () { return call('pushUnsubscribe', { endpoint: ep }); });
+    }).then(function () { pushState.on = false; okToast('通知をやめました'); });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-push]');
+    if (!t || location.hash !== '#/me') return;
+    var a = t.getAttribute('data-push');
+    var job = a === 'on' ? pushOn() : a === 'off' ? pushOff() : call('pushTest', {}).then(function (r) { okToast('テスト通知を送りました（' + r.sent + '台' + (r.failed ? '・届かなかった ' + r.failed + '台' : '') + '）'); });
+    t.disabled = true;
+    job.catch(function (er) { toast(er.message); }).then(function () { var b = $('pushBox'); if (b) b.innerHTML = pushBoxHtml(); });
   });
 
   // ---- マイページ ----
@@ -671,13 +859,14 @@
     html += '<div class="h2">最近関わった修理</div><div class="recent">' + (d.recent.length ? d.recent.map(function (r) {
       return '<a href="#/order/' + encodeURIComponent(r.key) + '"><span>' + esc(r.no) + '</span><span class="meta">' + esc(r.at) + '</span></a>';
     }).join('') : '<div class="empty">まだありません</div>') + '</div>';
+    html += '<div class="h2">通知（新規受注・再修理）</div><div class="panel" id="pushBox">' + pushBoxHtml() + '</div>';
     html += '<div class="h2">パスワードの変更</div><div class="pw">' +
       '<input class="f" type="password" id="pw0" placeholder="今のパスワード" autocomplete="current-password">' +
       '<input class="f" type="password" id="pw1" placeholder="新しいパスワード（英字と数字で8文字以上）" autocomplete="new-password">' +
       '<input class="f" type="password" id="pw2" placeholder="新しいパスワード（もう一度）" autocomplete="new-password">' +
       '<button class="btn" id="pwbtn">変更する</button><div class="err" id="pwerr"></div><div class="okmsg" id="pwok"></div></div>';
     html += '<button class="btn sub" id="logoutBtn" style="margin-top:28px">ログアウト</button>';
-    html += '<div class="note" style="text-align:center;margin-top:16px">版 ' + esc(APP_VERSION) + '</div>';
+    html += '<div class="note" style="text-align:center;margin-top:16px">版　画面 ' + esc(SCREEN_VERSION) + '／サーバー ' + esc(APP_VERSION) + '</div>';
     $('main').innerHTML = html;
   }
   document.addEventListener('click', function (e) {
@@ -822,6 +1011,55 @@
     }
     return html + '</div>';
   }
+  // ---- 新品の修理：新品棚・新品ユニットから出す（C49） ----
+  var newPlan = null;
+  function loadNewPlan(need) {
+    renderOrder(false);
+    var key = current.key;
+    call('invNewPlan', { key: key, need: need || '' }).then(function (d) { if (current && current.key === key) { newPlan = d; renderOrder(false); } }).catch(function (e) { toast(e.message); });
+  }
+  function newPlanWords(pl, need) {
+    if (pl.units === 0) return '新品棚から <b>' + pl.fromShelf + '本</b> 出す';
+    var u = '新品ユニット <b>' + pl.units + '台</b>';
+    if (pl.toShelf) return u + 'を開けて ' + need + '本使い、余り <b>' + pl.toShelf + '本を新品棚へ</b>';
+    if (pl.fromShelf) return u + 'をそのまま使い、新品棚から <b>' + pl.fromShelf + '本</b> 足す';
+    return u + 'をそのまま使う';
+  }
+  function newModHtml() {
+    var d = newPlan;
+    if (!d || d.key !== current.key) return '<div class="panel">読み込み中…</div>';
+    var html = '<div class="panel">';
+    html += '<div class="meta">今の在庫：新品棚 ' + d.shelf + '本・新品ユニット ' + d.units + '台</div>';
+    if (!d.need) {
+      html += '<div class="lbl2">この車の本数がわかりません（車種「' + esc(d.model) + '」）。本数を入れてください</div>' +
+        '<div class="nrow"><input class="f" id="newNeed" type="number" inputmode="numeric" placeholder="例：28"><button class="btn sub" style="margin:0;width:auto;padding:10px 16px" data-newneed="1">決定</button></div>';
+      return html + '</div>';
+    }
+    var pl = d.plan;
+    html += '<div class="lbl2">この修理は <b>' + d.need + '本</b>。こう出してください</div><div class="big-ok" style="text-align:left">' + newPlanWords(pl, d.need) + '</div>';
+    var after = { shelf: d.shelf - pl.fromShelf + pl.toShelf, units: d.units - pl.units };
+    html += '<div class="meta">出したあと：新品棚 ' + after.shelf + '本・新品ユニット ' + after.units + '台' + (after.units < 0 ? '（<b style="color:#B42318">ユニットが足りません</b>）' : '') + '</div>';
+    if (pl.toShelf) html += '<div class="note">ユニットを開けて組み直すので、組み上げのチェック（ケースなど）もいつもどおり行ってください</div>';
+    html += '<button class="btn" data-newtake="1">この内容で出す（チェックが付きます）</button>';
+    return html + '</div>';
+  }
+  function newTake(reason) {
+    var key = current.key, need = newPlan ? newPlan.need : '';
+    loading(true);
+    return call('invNewTake', { key: key, need: need, reason: reason || '' }).then(function (d) {
+      if (d.warn) { loading(false); return warnSheet(d.warn).then(function (r) { if (r) return newTake(r); }); }
+      newPlan = d; openInline = ''; listCache = null; invData = null;
+      okToast('新品を出しました（' + (d.done ? d.done.v : '') + '）');
+      return call('order', { key: key }).then(function (o) { if (current && current.key === key) { current = o; renderOrder(false); } });
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  document.addEventListener('click', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0) return;
+    var t;
+    if ((t = e.target.closest('[data-newtake]'))) { newTake(''); return; }
+    if ((t = e.target.closest('[data-newneed]'))) { var n = Number($('newNeed').value); if (!(n > 0)) { toast('本数を入れてください'); return; } loadNewPlan(n); return; }
+  });
+
   function caseHtml() {
     var html = '<div class="panel">';
     if (current.caseSerial) html += '<div class="meta">今のケース：' + esc(current.caseSerial) + '</div><label class="meta" style="display:block;margin:6px 0"><input type="checkbox" id="caseDist"> 前のケースは歪みあり（ジャンク用にする）</label>';
@@ -887,23 +1125,45 @@
   function renderInv() {
     var d = invData;
     var item = function (id) { var x = d.items.filter(function (i) { return i.id === id; })[0]; return x ? x.count : 0; };
-    var html = '<div class="h2" style="margin-top:4px">すぐ使える在庫（検査済）</div><div class="board">' + (d.board || []).map(function (b) {
-      var u28 = Math.floor(b.stock / 28), u20 = Math.floor(b.stock / 20);
-      return '<div class="bcell"><div class="g">' + esc(b.grade) + '</div><div class="v' + (b.stock < 20 ? ' low' : '') + '">' + b.stock + '<small>本</small></div>' +
-        '<div class="w">2年 ' + (b.w['2年'] || 0) + '・1年 ' + (b.w['1年'] || 0) + '・半年 ' + (b.w['半年'] || 0) + '</div>' +
-        '<div class="u">28本で' + u28 + '台・20本で' + u20 + '台分</div>' +
-        ((b.charging || b.assembled) ? '<div class="w">充電中 ' + b.charging + '・組立済 ' + b.assembled + '</div>' : '') + '</div>';
-    }).join('') +
-      '<div class="bcell new"><div class="g">新品棚</div><div class="v">' + item('NEW-MOD') + '<small>本</small></div><div class="w">新品ユニット ' + item('NEW-UNIT') + '台</div></div>' +
-      '<div class="bcell"><div class="g">検査待ち</div><div class="v">' + d.waitInspect + '<small>本</small></div><div class="w">分解待ち ' + d.measure.length + '台・回収待ち ' + d.collect.length + '台</div></div>' +
-      '</div><div class="note">赤い数字は20本（1台分）未満です</div>';
+    var G = d.grades || ['G2-1', 'G2-2', 'G2-3', 'G3'], R = d.ranks || ['A', 'B+', 'B', 'C'], M = d.matrix || { usable: {}, half: {} };
+    var cell = function (n, cls) { return '<td class="' + (cls || '') + (n ? '' : ' z') + '">' + (n ? n : '-') + '</td>'; };
+    var sumRow = function (k, r) { return G.reduce(function (a, g) { return a + ((M[k][r] || {})[g] || 0); }, 0); };
+    var sumG = function (k, g) { return R.reduce(function (a, r) { return a + ((M[k][r] || {})[g] || 0); }, 0); };
+    var block = function (k, title) {
+      var h = '<tr class="grp"><td colspan="' + (G.length + 2) + '">' + title + '</td></tr>';
+      R.forEach(function (r) { h += '<tr><td class="rk">' + esc(r) + '</td>' + cell(sumRow(k, r), 'sum') + G.map(function (g) { return cell((M[k][r] || {})[g] || 0); }).join('') + '</tr>'; });
+      var tot = G.reduce(function (a, g) { return a + sumG(k, g); }, 0);
+      h += '<tr class="sub"><td class="rk">小計</td>' + cell(tot, 'sum') + G.map(function (g) { return cell(sumG(k, g)); }).join('') + '</tr>';
+      return h;
+    };
+    var repairTotal = G.reduce(function (a, g) { return a + sumG('usable', g) + sumG('half', g); }, 0);
+    var need = {}; (d.models || []).forEach(function (m) { need[m.model] = m.need; });
+    var waitUnitsMods = d.measure.reduce(function (a, u) { return a + (need[u.model] || 0); }, 0);
+    var newTotal = item('NEW-MOD') + item('NEW-UNIT') * 28;
+    var html = '<div class="h2" style="margin-top:4px">在庫表（検査済のモジュール）</div><div class="ztwrap"><table class="zt"><tr><th></th><th>合計</th>' + G.map(function (g) { return '<th>' + esc(g) + '</th>'; }).join('') + '</tr>';
+    html += block('usable', '使用可能（1年・2年保証用）');
+    html += block('half', '半年保証用（インピ〇放電×）');
+    html += '<tr class="tot"><td class="rk">修理用 合計</td>' + cell(repairTotal, 'sum') + G.map(function (g) { return cell(sumG('usable', g) + sumG('half', g)); }).join('') + '</tr>';
+    html += '<tr class="one"><td class="rk">ジャンク用</td>' + cell(item('JUNK-MOD'), 'sum') + '<td colspan="' + G.length + '" class="memo">インピ×放電×</td></tr>';
+    html += '<tr class="one"><td class="rk">未計測・計測待ち</td>' + cell(d.waitInspect + waitUnitsMods, 'sum') + '<td colspan="' + G.length + '" class="memo">分解済み ' + d.waitInspect + '本＋分解待ち ' + d.measure.length + '台（約' + waitUnitsMods + '本）</td></tr>';
+    html += '<tr class="one new"><td class="rk">新品</td>' + cell(newTotal, 'sum') + '<td colspan="' + G.length + '" class="memo">新品棚 ' + item('NEW-MOD') + '本＋新品ユニット ' + item('NEW-UNIT') + '台（×28本）</td></tr>';
+    html += '</table></div>';
     html += '<div class="tiles">' +
-      '<div class="tile"><div class="v">' + d.usable + '<small>本</small></div><div class="k">使える在庫（検査済）</div></div>' +
-      '<div class="tile"><div class="v">' + d.waitInspect + '<small>本</small></div><div class="k">検査待ちのモジュール</div></div>' +
+      '<div class="tile"><div class="v">' + d.repairWait + '<small>本</small></div><div class="k">修理待ち（充電中・組立済）</div></div>' +
+      '<div class="tile"><div class="v">' + (repairTotal + d.repairWait) + '<small>本</small></div><div class="k">在庫＋修理待ち</div></div>' +
       '<div class="tile"><div class="v">' + d.collect.length + '<small>台</small></div><div class="k">回収待ち（戻り）</div></div>' +
       '<div class="tile"><div class="v">' + d.measure.length + '<small>台</small></div><div class="k">分解待ちのユニット</div></div></div>';
-    html += '<div class="btns"><a href="#/inv/in">入庫</a><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
-    html += '<div class="h2">棚の在庫</div>';
+    if (d.monthly) {
+      var mo = d.monthly, ks = ['半年', '1年', '2年', '廃棄'];
+      html += '<div class="h2">今月の検査（' + mo.month + '月の累計）</div><table class="zt mon"><tr><th></th>' + ks.map(function (k) { return '<th>' + k + '用</th>'; }).join('') + '<th>合計</th></tr>';
+      var tc = ks.reduce(function (a, k) { return a + mo.cur[k]; }, 0), tp = ks.reduce(function (a, k) { return a + mo.prev[k]; }, 0);
+      html += '<tr><td class="rk">今月</td>' + ks.map(function (k) { return '<td>' + mo.cur[k] + '</td>'; }).join('') + '<td class="sum">' + tc + '</td></tr>';
+      html += '<tr><td class="rk">先月</td>' + ks.map(function (k) { return '<td>' + mo.prev[k] + '</td>'; }).join('') + '<td class="sum">' + tp + '</td></tr>';
+      var df = function (n) { return '<td class="' + (n > 0 ? 'up' : n < 0 ? 'down' : 'z') + '">' + (n > 0 ? '+' : '') + n + '</td>'; };
+      html += '<tr class="sub"><td class="rk">前月比</td>' + ks.map(function (k) { return df(mo.cur[k] - mo.prev[k]); }).join('') + df(tc - tp) + '</tr></table>';
+    }
+    html += '<div class="btns"><a href="#/inv/in">入庫</a><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
+    html += '<div class="h2">棚ごとの本数（どの棚にあるか）</div>';
     html += d.shelves.length ? '<table class="t"><tr><th>種類</th><th>保証</th><th>ランク</th><th>棚</th><th style="text-align:right">本数</th></tr>' + d.shelves.map(function (s) {
       return '<tr><td>' + esc(s.grade) + '</td><td>' + esc(s.warranty) + '</td><td>' + esc(s.rank) + '</td><td class="meta">' + esc(s.shelf) + '</td><td class="n">' + s.count + '</td></tr>';
     }).join('') + '</table>' : '<div class="empty">まだ登録がありません（「棚卸し」から今ある在庫を登録）</div>';
@@ -922,6 +1182,55 @@
       return '<tr><td>' + (link ? '<a href="#/inv/dis/' + encodeURIComponent(u.unitNo) + '">' + esc(u.unitNo) + '</a>' : esc(u.unitNo)) + '</td><td>' + esc(u.model) + '</td><td class="meta">' + esc(u.at) + '</td></tr>';
     }).join('') + '</table>';
   }
+
+  // ---- 予備充電 ----
+  var preData = null, preLane = '';
+  function openPre() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '予備充電';
+    scanHandlers.plane = function (v) { preLane = laneId(v); if (LANES.indexOf(preLane) < 0) { toast('レーンが見つかりません：' + v); preLane = ''; } renderPre(); };
+    scanHandlers.pmod = function (v) { return preScan(v, ''); };
+    loading(true);
+    call('invPre').then(function (d) { preData = d; renderPre(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function renderPre() {
+    var d = preData; if (!d) return;
+    var html = '<div class="note">修理が決まる前に充電しておくモジュールを登録します（朝一の急速充電・突発の即日対応用）。あとで修理の「本数に合わせて充電開始」で読めば、その修理に付け替わります。</div>';
+    html += '<div class="lbl2">① 充電レーン' + (preLane ? '：<b>' + esc(preLane) + '</b>' : '（押すか、レーンのQRを読む）') + '</div>';
+    html += '<div class="lanes">' + LANES.map(function (l, i) { return '<button data-plane="' + l + '"' + (preLane === l ? ' class="on"' : '') + '>' + (i + 1) + ((d.lanes[l] || []).length ? '<small>' + d.lanes[l].length + '</small>' : '') + '</button>'; }).join('') + '</div>';
+    if (!preLane) html += scanBox('plane', 'レーンのQRを読む');
+    else {
+      var list = d.lanes[preLane] || [];
+      html += '<div class="lbl2">② モジュールのQRを読む（1本ずつ）　<span class="cnt">' + list.length + '本</span></div>' + scanBox('pmod', 'モジュールのQR');
+      if (list.length) html += '<div class="mlist">' + list.slice().reverse().map(function (m) {
+        return '<div class="m"><span>' + esc(m.qr) + '　<span class="meta">' + esc([m.grade, m.warranty, m.rank].filter(Boolean).join('・')) + '</span></span><button data-prm="' + esc(m.qr) + '">外す</button></div>';
+      }).join('') + '</div>';
+    }
+    var used = Object.keys(d.lanes).filter(function (l) { return d.lanes[l].length; });
+    html += '<div class="h2">予備充電中（全部で ' + d.count + '本）</div>' + (used.length ? '<table class="t"><tr><th>レーン</th><th>種類</th><th style="text-align:right">本数</th></tr>' + used.sort().map(function (l) {
+      var g = {}; d.lanes[l].forEach(function (m) { g[m.grade] = (g[m.grade] || 0) + 1; });
+      return '<tr><td>' + esc(l) + '</td><td>' + esc(Object.keys(g).map(function (k) { return k + '×' + g[k]; }).join('・')) + '</td><td class="n">' + d.lanes[l].length + '</td></tr>';
+    }).join('') + '</table>' : '<div class="empty">予備充電中のモジュールはありません</div>');
+    $('main').innerHTML = html;
+  }
+  function preScan(qr, reason) {
+    return call('invPreScan', { laneId: preLane, qr: qr, reason: reason }).then(function (d) {
+      if (d.warn) return warnSheet(d.warn).then(function (r) { if (r) return preScan(qr, r); });
+      preData = d; invData = null; renderPre();
+    }).catch(function (e) { toast(e.message); });
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/inv/pre') return;
+    var t;
+    if ((t = e.target.closest('[data-plane]'))) { preLane = t.getAttribute('data-plane'); renderPre(); return; }
+    if ((t = e.target.closest('[data-prm]'))) {
+      var qr = t.getAttribute('data-prm');
+      confirmSheet(qr + ' を予備充電から外して棚に戻しますか？', '外す').then(function (ok) {
+        if (!ok) return;
+        call('invPreRemove', { qr: qr }).then(function (d) { preData = d; invData = null; renderPre(); }).catch(function (er) { toast(er.message); });
+      });
+    }
+  });
 
   // ---- 入庫 ----
   var inMode = '戻り', inUnit = '', inLast = null;
@@ -1105,6 +1414,7 @@
     html += '<label class="f" for="nName">お名前・会社名 <span class="req">必須</span></label><input class="f" id="nName" autocomplete="off">';
     html += nSeg('sex', d.sex, nf.sex);
     html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div>';
+    html += '<label class="f" for="nTime">開始時刻（わかれば）</label><input class="f" id="nTime" type="time" step="900">';
     html += '<div class="lbl2">店舗 <span class="req">必須</span></div>' + nSeg('store', d.stores, nf.store);
     html += '<div class="lbl2">修理区分</div>' + nSeg('kubun', d.kubun, nf.kubun);
     html += '<label class="f" for="nModel">車種型式</label><input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="例：ZVW30"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
@@ -1348,7 +1658,7 @@
   }
   function nCollect() {
     return {
-      kind: nf.kind, phone: nVal('nTel'), name: nVal('nName'), sex: nf.sex, date: nVal('nDate'), hold: $('nHold').checked,
+      kind: nf.kind, phone: nVal('nTel'), name: nVal('nName'), sex: nf.sex, date: nVal('nDate'), hold: $('nHold').checked, time: nVal('nTime'),
       store: nf.store, kubun: nf.kubun, model: nVal('nModel'), grade: nf.grade, amount: nVal('nAmount'), payment: nf.payment,
       content: nVal('nContent'), contact: nVal('nContact'), zip: nVal('nZip'), address: nVal('nAddr'), birth: nVal('nBirth'),
       mileage: nVal('nMile'), referral: nVal('nRef'), parentKey: nf.parentKey, parent: nVal('nParentNo'), note: nVal('nNote'),
@@ -1413,7 +1723,7 @@
   token = loadToken();
   if (!token) { showLogin(''); return; }
   loading(true);
-  call('me').then(function (d) { me = d; APP_VERSION = d.version || APP_VERSION; $('app').classList.remove('hidden'); route(); })
+  call('me').then(function (d) { me = d; APP_VERSION = d.version || APP_VERSION; versionCheck(); $('app').classList.remove('hidden'); route(); })
     .catch(function () { showLogin(''); }).then(function () { loading(false); });
 })();
 </script>
