@@ -275,7 +275,8 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-09g';
+  var SCREEN_VERSION = '2026-11-09h';
+  var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
   var token = '';
@@ -350,7 +351,7 @@
     $('lbtn').disabled = true; $('lerr').textContent = '';
     call('login', { loginId: id, password: pw, device: navigator.userAgent.indexOf('iPhone') >= 0 ? 'iPhone' : (navigator.userAgent.indexOf('iPad') >= 0 ? 'iPad' : (navigator.userAgent.indexOf('Android') >= 0 ? 'Android' : 'PC')) })
       .then(function (d) {
-        saveToken(d.token); me = d.me; APP_VERSION = d.version || APP_VERSION; versionCheck(); $('lpw').value = '';
+        saveToken(d.token); me = d.me; APP_VERSION = d.version || APP_VERSION; NEED_SCREEN = d.screen || d.version || NEED_SCREEN; versionCheck(); $('lpw').value = '';
         $('login').classList.add('hidden'); $('app').classList.remove('hidden');
         route();
       })
@@ -376,7 +377,7 @@
   // 画面（GitHub の index.html）がサーバーより古いときは、上に注意を出す
   function versionCheck() {
     var old = document.getElementById('verWarn'); if (old) old.remove();
-    if (!APP_VERSION || !SCREEN_VERSION || SCREEN_VERSION >= APP_VERSION) return;
+    if (!NEED_SCREEN || !SCREEN_VERSION || SCREEN_VERSION >= NEED_SCREEN) return;
     var d = document.createElement('div');
     d.id = 'verWarn';
     d.className = 'verwarn';
@@ -1723,7 +1724,7 @@
   token = loadToken();
   if (!token) { showLogin(''); return; }
   loading(true);
-  call('me').then(function (d) { me = d; APP_VERSION = d.version || APP_VERSION; versionCheck(); $('app').classList.remove('hidden'); route(); })
+  call('me').then(function (d) { me = d; APP_VERSION = d.version || APP_VERSION; NEED_SCREEN = d.screen || d.version || NEED_SCREEN; versionCheck(); $('app').classList.remove('hidden'); route(); })
     .catch(function () { showLogin(''); }).then(function () { loading(false); });
 })();
 </script>
