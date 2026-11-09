@@ -41,6 +41,7 @@
   #login p.sub { color: var(--sub); margin: 0 0 24px; font-size: 14px; }
   label.f { display: block; font-size: 14px; color: var(--sub); margin: 14px 0 6px; }
   input.f { width: 100%; font-size: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  select.f { width: 100%; font-size: 17px; padding: 12px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); }
   .btn { display: block; width: 100%; padding: 14px; font-size: 17px; font-weight: 700; border-radius: 10px; border: none; background: var(--blue); color: #fff; margin-top: 22px; }
   .btn:disabled { opacity: .5; }
   .err { color: #B42318; font-size: 14px; margin-top: 12px; white-space: pre-wrap; }
@@ -275,7 +276,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-09h';
+  var SCREEN_VERSION = '2026-11-09i';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1241,6 +1242,16 @@
     loading(true);
     invLoad(true).then(function () { inUnit = ''; inLast = null; renderInbound(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     scanHandlers.incase = function (v) { return doInbound(v); };
+    scanHandlers.buycase = function (v) {
+      if (!buyCaseUnit) return;
+      return call('invBuyCase', { unitNo: buyCaseUnit, caseSerial: v }).then(function (r) {
+        (buyLast.units || []).forEach(function (u) { if (u.unitNo === r.unitNo) u.caseSerial = r.caseSerial; });
+        var next = (buyLast.units || []).filter(function (u) { return !u.caseSerial; })[0];
+        buyCaseUnit = next ? next.unitNo : '';
+        renderInbound();
+        var el = document.querySelector('[data-scan="buycase"]'); if (el) el.focus();
+      }).catch(function (e) { toast(e.message); });
+    };
   }
   function renderInbound() {
     var d = invData;
@@ -1255,14 +1266,137 @@
       if (inUnit) html += '<div class="lbl2">② ユニットケースのバーコードを読む</div>' + scanBox('incase', 'ケースの製造番号') +
         '<button class="btn sub" data-innocase="1">ケースの番号なしで入庫する</button>';
     } else {
-      html += '<div class="lbl2">車種</div><select class="f" id="inModel"><option value="">選ぶ</option>' + d.models.map(function (m) { return '<option>' + esc(m.model) + '</option>'; }).join('') + '</select>' +
-        '<div class="lbl2">仕入先</div><input class="f" id="inSup" placeholder="例：シマ商会">' +
-        '<div class="lbl2">仕入金額（円）</div><input class="f" id="inPrice" type="number" inputmode="numeric">' +
-        '<div class="lbl2">手書きラベルの番号（あれば）</div><input class="f" id="inOld" placeholder="例：SM163">' +
-        '<div class="lbl2">ユニットケースのバーコードを読む（読むと入庫します）</div>' + scanBox('incase', 'ケースの製造番号') +
-        '<button class="btn sub" data-innocase="1">ケースの番号なしで入庫する</button>';
+      html += buyHtml(d);
     }
     $('main').innerHTML = html;
+  }
+
+  // ---- 仕入れ（購入品が届いた：まとめて登録） ----
+  function buyLive(e) {
+    var t = e.target;
+    if (!buy || !t || !t.id && !(t.getAttribute && t.getAttribute('data-bline'))) return;
+    if (!/^(bPrice|bLooseQty|bNewUnits|bNewPer)$/.test(t.id) && !t.getAttribute('data-bline')) return;
+    buyRead();
+    var el = $('bSum'); if (el && invData) el.innerHTML = esc(buySumText(invData));
+  }
+  document.addEventListener('input', buyLive);
+  document.addEventListener('change', buyLive);
+  var buy = null, buyLast = null, buyCaseUnit = '', buyList = null;
+  function buyReset() {
+    var t = new Date();
+    buy = { date: t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2),
+      supplier: '', prefix: '', tax: '', loose: false, looseQty: '', lines: [{ model: '', count: 1 }], newUnits: 1, newPer: 28, price: '', note: '' };
+  }
+  function buySup(d) {
+    var list = (d.buy && d.buy.suppliers) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].name === buy.supplier) return list[i];
+    return null;
+  }
+  function buyNeed(d, model) {
+    for (var i = 0; i < d.models.length; i++) if (d.models[i].model === model) return d.models[i].need || 0;
+    return 0;
+  }
+  function buyTotals(d) {
+    var sup = buySup(d);
+    if (sup && sup.isNew) return { units: Number(buy.newUnits) || 0, qty: (Number(buy.newUnits) || 0) * (Number(buy.newPer) || 0) };
+    if (buy.loose) return { units: 0, qty: Number(buy.looseQty) || 0 };
+    var u = 0, q = 0;
+    buy.lines.forEach(function (l) { var c = Number(l.count) || 0; if (l.model && c > 0) { u += c; q += c * buyNeed(d, l.model); } });
+    return { units: u, qty: q };
+  }
+  function buyHtml(d) {
+    if (!buy) buyReset();
+    if (!d.buy) return '<div class="empty">サーバーが古い版です。管理者に「仕入れ」の貼り付けを確認してもらってください</div>';
+    var sup = buySup(d), h = '';
+    if (buyLast) {
+      h += '<div class="big-ok">登録しました：<b>' + esc(buyLast.id) + '</b>　' + esc(buyLast.detail) + '（' + buyLast.qty + '本・税別 ' + Number(buyLast.ex).toLocaleString() + '円）' +
+        (buyLast.label !== '-' ? '<br>ラベルに <b>' + esc(buyLast.label) + '</b> を書いてください' : '') + '</div>';
+      if (buyLast.units && buyLast.units.length) {
+        h += '<div class="lbl2">ケースのバーコード（あとでも可）：番号を選んで読む</div>' + buyLast.units.map(function (u) {
+          return '<div class="card tap' + (buyCaseUnit === u.unitNo ? ' sel' : '') + '" data-buycase="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.caseSerial ? 'ケース ' + u.caseSerial : '') + '</span></div><div class="meta">' + esc(u.model) + '</div></div>';
+        }).join('');
+        if (buyCaseUnit) h += scanBox('buycase', buyCaseUnit + ' のケースの製造番号');
+      }
+      h += '<button class="btn sub" data-buynew="1">続けて別の仕入れを登録する</button>';
+    } else {
+      h += '<div class="lbl2">届いた日</div><input class="f" type="date" id="bDate" value="' + esc(buy.date) + '">';
+      h += '<div class="lbl2">購入先</div><div class="seg">' + d.buy.suppliers.map(function (s) {
+        return '<button data-bsup="' + esc(s.name) + '"' + (buy.supplier === s.name ? ' class="on"' : '') + '>' + esc(s.name) + '</button>';
+      }).join('') + '</div>';
+      if (sup && sup.isNew) {
+        h += '<div class="lbl2">新品ユニットの台数</div><input class="f" type="number" inputmode="numeric" id="bNewUnits" value="' + esc(buy.newUnits) + '">' +
+          '<div class="lbl2">1台の本数</div><input class="f" type="number" inputmode="numeric" id="bNewPer" value="' + esc(buy.newPer) + '">';
+      } else if (sup) {
+        h += '<div class="seg"><button data-bloose="0"' + (!buy.loose ? ' class="on"' : '') + '>ユニット（番号を付ける）</button><button data-bloose="1"' + (buy.loose ? ' class="on"' : '') + '>バラのモジュール</button></div>';
+        if (buy.loose) {
+          h += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="bLooseQty" value="' + esc(buy.looseQty) + '">';
+        } else {
+          h += '<div class="lbl2">車種と台数（まとめて買った分を全部）</div>' + buy.lines.map(function (l, i) {
+            return '<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><select class="f" data-bline="' + i + '" data-bk="model" style="flex:2"><option value="">車種を選ぶ</option>' +
+              d.models.map(function (m) { return '<option' + (m.model === l.model ? ' selected' : '') + '>' + esc(m.model) + '</option>'; }).join('') + '</select>' +
+              '<input class="f" type="number" inputmode="numeric" data-bline="' + i + '" data-bk="count" value="' + esc(l.count) + '" style="flex:1;min-width:0">' +
+              '<span class="meta">台</span>' + (buy.lines.length > 1 ? '<button class="btn sub" data-bdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>';
+          }).join('') + '<button class="btn sub" data-badd="1">＋ 車種を足す</button>';
+          var pre = buy.prefix || sup.prefix;
+          h += '<div class="lbl2">番号の頭</div><div class="seg">' + d.buy.prefixes.map(function (x) { return '<button data-bpre="' + x + '"' + (pre === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>';
+        }
+      }
+      if (sup) {
+        var tax = buy.tax || sup.tax;
+        h += '<div class="lbl2">金額（全部で）</div><input class="f" type="number" inputmode="numeric" id="bPrice" value="' + esc(buy.price) + '" placeholder="無料なら 0">' +
+          '<div class="seg"><button data-btax="税込"' + (tax === '税込' ? ' class="on"' : '') + '>税込</button><button data-btax="税別"' + (tax === '税別' ? ' class="on"' : '') + '>税別</button></div>' +
+          '<div class="lbl2">メモ（出品者・取引No.など。なくても可）</div><input class="f" id="bNote" value="' + esc(buy.note) + '">';
+        var t = buyTotals(d);
+        h += '<div class="panel" id="bSum">' + esc(buySumText(d)) + '</div><button class="btn" data-bsave="1">登録する</button>';
+      }
+    }
+    h += '<div class="lbl2" style="margin-top:22px">最近の仕入れ</div><div id="bList">' + buyListHtml() + '</div>';
+    if (!buyList) buyLoadList();
+    return h;
+  }
+  function buySumText(d) {
+    var t = buyTotals(d), sup = buySup(d);
+    var price = Number(buy.price) || 0, tax = buy.tax || (sup && sup.tax);
+    return (t.units ? t.units + '台・' : '') + t.qty + '本' + (String(buy.price) !== '' ? '　税別 ' + Math.round(tax === '税込' ? price / 1.1 : price).toLocaleString() + '円' : '');
+  }
+  function buyListHtml() {
+    if (!buyList) return '<div class="meta">読み込み中…</div>';
+    if (!buyList.length) return '<div class="empty">まだありません</div>';
+    return buyList.map(function (b) {
+      return '<div class="card"><div class="row1"><span class="no">' + esc(b.label !== '-' ? b.label : b.id) + '</span><span class="date">' + esc(b.date) + '</span></div>' +
+        '<div class="meta">' + esc(b.supplier + '　' + b.detail + '　' + b.qty + '本・税別 ' + Number(b.ex).toLocaleString() + '円　' + b.by) + (b.state !== '有効' ? '　<b>' + esc(b.state) + '</b>' : '') + '</div>' +
+        (b.canCancel ? '<button class="btn sub" data-bcancel="' + esc(b.id) + '" style="margin-top:8px">まちがえたので取り消す</button>' : '') + '</div>';
+    }).join('');
+  }
+  function buyLoadList() {
+    call('invBuyList').then(function (r) { buyList = r.list; var el = $('bList'); if (el) el.innerHTML = buyListHtml(); }).catch(function () { buyList = []; });
+  }
+  function buyRead() {
+    var g = function (id) { var el = $(id); return el ? el.value : null; };
+    if (g('bDate') !== null) buy.date = g('bDate');
+    if (g('bPrice') !== null) buy.price = g('bPrice');
+    if (g('bNote') !== null) buy.note = g('bNote');
+    if (g('bLooseQty') !== null) buy.looseQty = g('bLooseQty');
+    if (g('bNewUnits') !== null) buy.newUnits = g('bNewUnits');
+    if (g('bNewPer') !== null) buy.newPer = g('bNewPer');
+    document.querySelectorAll('[data-bline]').forEach(function (el) { buy.lines[Number(el.getAttribute('data-bline'))][el.getAttribute('data-bk')] = el.value; });
+  }
+  function buySave() {
+    buyRead();
+    var d = invData, sup = buySup(d), t = buyTotals(d);
+    if (!sup) { toast('購入先を選んでください'); return; }
+    if (String(buy.price).trim() === '') { toast('金額を入れてください（無料なら 0）'); return; }
+    if (!t.qty) { toast(sup.isNew ? '台数を入れてください' : buy.loose ? '本数を入れてください' : '車種と台数を入れてください'); return; }
+    var p = { date: buy.date, supplier: sup.name, prefix: buy.prefix || sup.prefix || '', tax: buy.tax || sup.tax, price: buy.price, note: buy.note,
+      loose: !!buy.loose, looseQty: buy.looseQty, lines: buy.lines, newUnits: buy.newUnits, newPer: buy.newPer };
+    confirmSheet(sup.name + '　' + buySumText(d) + '\nこの内容で登録しますか？', '登録する').then(function (ok) {
+      if (!ok) return;
+      loading(true);
+      call('invBuy', p).then(function (r) {
+        buyLast = r; buyCaseUnit = ''; buyList = null; buyReset();
+        return invLoad(true).then(renderInbound);
+      }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+    });
   }
   function doInbound(serial) {
     var p = { kind: inMode, caseSerial: serial || '' };
@@ -1362,6 +1496,28 @@
     if ((t = e.target.closest('[data-inmode]'))) { inMode = t.getAttribute('data-inmode'); inUnit = ''; inLast = null; renderInbound(); return; }
     if ((t = e.target.closest('[data-inunit]'))) { inUnit = t.getAttribute('data-inunit'); renderInbound(); return; }
     if ((t = e.target.closest('[data-innocase]'))) { doInbound(''); return; }
+    // 仕入れ
+    if ((t = e.target.closest('[data-bsup]'))) { buyRead(); buy.supplier = t.getAttribute('data-bsup'); buy.prefix = ''; buy.tax = ''; renderInbound(); return; }
+    if ((t = e.target.closest('[data-bloose]'))) { buyRead(); buy.loose = t.getAttribute('data-bloose') === '1'; renderInbound(); return; }
+    if ((t = e.target.closest('[data-bpre]'))) { buyRead(); buy.prefix = t.getAttribute('data-bpre'); renderInbound(); return; }
+    if ((t = e.target.closest('[data-btax]'))) { buyRead(); buy.tax = t.getAttribute('data-btax'); renderInbound(); return; }
+    if ((t = e.target.closest('[data-badd]'))) { buyRead(); buy.lines.push({ model: '', count: 1 }); renderInbound(); return; }
+    if ((t = e.target.closest('[data-bdel]'))) { buyRead(); buy.lines.splice(Number(t.getAttribute('data-bdel')), 1); renderInbound(); return; }
+    if ((t = e.target.closest('[data-bsave]'))) { buySave(); return; }
+    if ((t = e.target.closest('[data-buynew]'))) { buyLast = null; buyCaseUnit = ''; renderInbound(); return; }
+    if ((t = e.target.closest('[data-buycase]'))) {
+      buyCaseUnit = t.getAttribute('data-buycase'); renderInbound();
+      var el = document.querySelector('[data-scan="buycase"]'); if (el) el.focus();
+      return;
+    }
+    if ((t = e.target.closest('[data-bcancel]'))) {
+      var bid = t.getAttribute('data-bcancel');
+      confirmSheet(bid + ' の仕入れを取り消しますか？（ユニットは「取消」になり、棚卸表の行も消えます。番号は戻りません）', '取り消す').then(function (ok) {
+        if (!ok) return;
+        call('invBuyCancel', { id: bid }).then(function (r) { buyList = r.list; toast(r.note); return invLoad(true).then(renderInbound); }).catch(function (er) { toast(er.message); });
+      });
+      return;
+    }
     if ((t = e.target.closest('[data-disdone]'))) {
       var dist = $('disDist') && $('disDist').checked;
       confirmSheet(unitData.unitNo + ' の分解を完了にしますか？（読んだモジュール ' + unitData.modules.length + '本）', '完了にする').then(function (ok) {
