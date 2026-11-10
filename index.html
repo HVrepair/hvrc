@@ -135,6 +135,25 @@
   .panel .cnt { font-size: 22px; font-weight: 700; color: var(--navy); }
   .lanes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
   .crow { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
+  .cal .dc { position: relative; }
+  .dc .lv { margin-left: 2px; font-size: 10px; color: #7A4B00; background: #FFE8B3; border-radius: 4px; padding: 0 3px; line-height: 15px; }
+  .pbar.over div { background: #B42318; }
+  .advice { border-radius: 12px; padding: 10px 12px; margin: 8px 0; font-size: 15px; line-height: 1.5; background: #F3F6FA; border: 1px solid var(--line); }
+  .advice.high { background: #FDECEA; border-color: #F4C7C3; }
+  .advice.mid { background: #FFF6E5; border-color: #F5D9A6; }
+  .chart { width: 100%; height: auto; display: block; touch-action: manipulation; }
+  .chart text { font-size: 11px; fill: var(--sub); }
+  .chart .g { stroke: #E6E8EC; stroke-width: 1; }
+  .chart .act { fill: var(--navy); }
+  .chart .fc { fill: #DCE5F0; stroke: #6F87A6; stroke-width: 1; stroke-dasharray: 3 2; }
+  .chart .cur { fill: #5B7FA8; }
+  .chart .hit { fill: transparent; cursor: pointer; }
+  .chart .hit.on + rect, .chart rect.sel { stroke: #F28C28; stroke-width: 2; }
+  .ckey { display: flex; gap: 14px; font-size: 12px; color: var(--sub); margin: 4px 0 2px; flex-wrap: wrap; }
+  .ckey i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .ctip { font-size: 14px; min-height: 22px; margin: 4px 0 10px; color: var(--text); }
+  .seg.wrap { flex-wrap: wrap; }
+  .seg.wrap button { flex: 1 0 30%; }
   .rbar { padding: 6px 4px; border-radius: 8px; }
   .rbar.tap { cursor: pointer; }
   .rbar.on { background: #EEF4FF; }
@@ -290,7 +309,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10a';
+  var SCREEN_VERSION = '2026-11-10c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -319,7 +338,7 @@
   function memGet(k) { try { var v = localStorage.getItem('hvrc_m_' + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function memPut(k, v) { try { localStorage.setItem('hvrc_m_' + k, JSON.stringify(v)); } catch (e) { /* 入らなくても動く */ } }
   function call(action, payload) {
-    if (FRESH && /^(list|cal|mypage|jobHidden|reReasons)$/.test(action)) { payload = Object.assign({}, payload || {}, { fresh: true }); FRESH = false; }
+    if (FRESH && /^(list|cal|mypage|jobHidden|reReasons|stats)$/.test(action)) { payload = Object.assign({}, payload || {}, { fresh: true }); FRESH = false; }
     var done = function (res, resolve, reject) {
       if (res && res.ok) return resolve(res.data);
       if (res && res.relogin) { saveToken(''); showLogin(res.error); }
@@ -423,7 +442,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere') { reData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats') { reData = null; stData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -445,6 +464,9 @@
     else if (h.indexOf('#/inv/lot/') === 0) openCntUnit(decodeURIComponent(h.slice(10)));
     else if (h === '#/new') openNew();
     else if (h === '#/hidden') openHidden();
+    else if (h === '#/leave' || h.indexOf('#/leave/') === 0) openLeave(h.split('/')[2] || '');
+    else if (h === '#/stats') openStats();
+    else if (h === '#/inv/plan') openPlan();
     else if (h === '#/rere') openRe();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
@@ -484,7 +506,8 @@
     for (var day = 1; day <= last; day++) {
       var list = d.days[day] || [], wd = (first + day - 1) % 7;
       html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === calSel ? ' sel' : '') + '" data-cald="' + day + '">' +
-        '<span style="display:flex"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '</span>' : '') + '</span><span class="bars">' +
+        '<span style="display:flex;align-items:center"><span class="dn">' + day + '</span>' + ((d.leaves || {})[day] ? '<span class="lv">休' + (d.leaves[day].length > 1 ? d.leaves[day].length : '') + '</span>' : '') + (list.length ? '<span class="cnt">' + list.length + '</span>' : '') + '</span>' +
+        '<span class="bars">' +
         list.slice(0, 4).map(function (o) { return '<span class="bar" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.35' : '') + '"></span>'; }).join('') +
         (list.length > 4 ? '<span class="more">＋' + (list.length - 4) + '</span>' : '') + '</span></button>';
     }
@@ -495,6 +518,9 @@
       var sel = d.days[calSel] || [];
       var dt = new Date(d.y, d.m - 1, calSel);
       html += '<div class="h2">' + d.m + '/' + calSel + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')　' + sel.length + '件</div>';
+      var lvs = (d.leaves || {})[calSel] || [];
+      html += '<div class="note" style="margin:-4px 0 8px">' + (lvs.length ? '休み：' + lvs.map(function (x) { return esc(x.name) + '（' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + '）'; }).join('　') : '休みの人はいません') +
+        '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>';
       html += sel.length ? sel.map(function (o) {
         var full = o.pct >= 100;
         return '<div class="card tap" data-key="' + esc(o.key) + '">' +
@@ -549,9 +575,238 @@
         '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + Math.min(100, o.pct) + '%"></div></div>' +
         '<div class="pct">' + o.pct + '%</div></div>';
     }).join('');
-    html += '<div class="btns two" style="margin-top:18px"><a href="#/rere" class="alt">再修理の理由の集計</a><a href="#/hidden" class="alt">アプリに出していない受注</a></div>';
+    html += '<div class="btns two" style="margin-top:18px">' + (me && (me.role === '店長' || me.role === '管理者') ? '<a href="#/stats" class="alt">売上・件数の集計</a>' : '') + '<a href="#/rere" class="alt">再修理の理由の集計</a><a href="#/hidden" class="alt">アプリに出していない受注</a></div>';
     $('main').innerHTML = html;
   }
+
+  // ---- 休み（公休・有休・半休） ----
+  function fmtDay(n) { n = Number(n) || 0; return (Math.round(n * 10) / 10).toString(); }
+  var lvData = null, lvYm = '', lvWho = '', lvForm = { date: '', type: '公休', half: '全日', memo: '', staffId: '' };
+  function openLeave(date) {
+    setNav('#/me', '#/me');
+    $('title').textContent = '休み';
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) { lvForm.date = date; lvYm = date.slice(0, 7); }
+    if (!lvForm.date) { var t = new Date(); lvForm.date = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
+    loading(true);
+    call('leaveMonth', { ym: lvYm, staffId: lvWho }).then(function (d) { lvData = d; renderLeave(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function renderLeave() {
+    var d = lvData, M = d.me;
+    var html = '<div class="calhead"><button type="button" data-lvm="-1">◀</button><b>' + d.y + '年' + d.m + '月</b><span><button type="button" class="thism" data-lvm="0">今月</button> <button type="button" data-lvm="1">▶</button></span></div>';
+    if (d.boss && d.staff) html += '<select class="f" id="lvWho">' + d.staff.map(function (s) { return '<option value="' + esc(s.id) + '"' + (s.id === M.staffId ? ' selected' : '') + '>' + esc(s.name) + (s.id === (me && me.staffId) ? '（自分）' : '') + '</option>'; }).join('') + '</select>';
+    html += '<div class="tiles">' +
+      '<div class="tile"><div class="v">' + fmtDay(M.kokyu) + '<small> / ' + d.allowance + '日</small></div><div class="k">公休（この月の土日 ' + d.allowance + '日）</div></div>' +
+      '<div class="tile"><div class="v" style="' + (M.left < 0 ? 'color:#B42318' : '') + '">' + fmtDay(M.left) + '<small>日</small></div><div class="k">公休の残り</div></div>' +
+      '<div class="tile"><div class="v">' + fmtDay(M.yukyu) + '<small>日</small></div><div class="k">有休（この月）</div></div>' +
+      '<div class="tile"><div class="v" style="' + (M.yLeft < 0 ? 'color:#B42318' : '') + '">' + fmtDay(M.yLeft) + '<small>日</small></div><div class="k">有休の残り（付与 ' + fmtDay(M.granted) + '日）</div></div>' +
+      '<div class="tile"><div class="v">' + fmtDay(M.total) + '<small>日</small></div><div class="k">この月の休み 合計</div></div></div>';
+    html += '<div class="note">半休は0.5日（半休2回で1日分）。公休は、その月の土日の数だけ休めます</div>';
+    // 入れる
+    html += '<div class="h2">' + esc(M.name) + 'さんの休みを入れる</div>' +
+      '<input class="f" type="date" id="lvDate" value="' + esc(lvForm.date) + '">' +
+      '<div class="seg">' + ['公休', '有休'].map(function (x) { return '<button data-lvtype="' + x + '"' + (lvForm.type === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
+      '<div class="seg">' + ['全日', '午前', '午後'].map(function (x) { return '<button data-lvhalf="' + x + '"' + (lvForm.half === x ? ' class="on"' : '') + '>' + (x === '全日' ? '1日' : x + '（半休）') + '</button>'; }).join('') + '</div>' +
+      '<input class="f" id="lvMemo" placeholder="メモ（なくても可）" value="' + esc(lvForm.memo) + '"><button class="btn" data-lvadd="1">休みを入れる</button>';
+    // 一覧
+    html += '<div class="h2">' + d.m + '月の休み（' + esc(M.name) + 'さん）</div>';
+    html += d.mine.length ? '<table class="t">' + d.mine.map(function (x) {
+      var dt = new Date(x.date.replace(/-/g, '/'));
+      return '<tr><td>' + (dt.getMonth() + 1) + '/' + dt.getDate() + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')</td><td>' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + (x.memo ? '<div class="meta">' + esc(x.memo) + '</div>' : '') + '</td><td class="n">' + fmtDay(x.n) + '日</td><td style="width:64px;white-space:nowrap"><button type="button" class="mini" data-lvdel="' + esc(x.id) + '">取消</button></td></tr>';
+    }).join('') + '</table>' : '<div class="empty">この月の休みはまだありません</div>';
+    // みんな（店長・管理者）
+    if (d.boss && d.all) {
+      html += '<div class="h2">みんなの休み（' + d.m + '月）</div><table class="t"><tr><th>名前</th><th style="text-align:right">公休</th><th style="text-align:right">残り</th><th style="text-align:right">有休</th><th style="text-align:right">合計</th><th style="text-align:right">有休残</th></tr>' +
+        d.all.map(function (a) {
+          return '<tr><td><a href="#" data-lvsee="' + esc(a.staffId) + '">' + esc(a.name) + '</a></td><td class="n">' + fmtDay(a.kokyu) + '</td><td class="n" style="' + (a.left < 0 ? 'color:#B42318;font-weight:700' : '') + '">' + fmtDay(a.left) + '</td><td class="n">' + fmtDay(a.yukyu) + '</td><td class="n">' + fmtDay(a.total) + '</td><td class="n">' + fmtDay(a.yLeft) + '</td></tr>';
+        }).join('') + '</table>';
+      html += '<div class="h2">有休の付与（' + esc(M.name) + 'さん）</div><div class="note">付与した日数を入れると「有休の残り」に足されます。まちがえたときはマイナスで入れて直します</div>' +
+        '<div style="display:flex;gap:6px"><input class="f" type="number" step="0.5" inputmode="decimal" id="lvGrant" placeholder="日数" style="flex:1;min-width:0"><input class="f" id="lvGrantMemo" placeholder="メモ（例 2026年分）" style="flex:2"></div><button class="btn sub" data-lvgrant="1">有休を付与する</button>';
+    }
+    $('main').innerHTML = html;
+  }
+  function lvRead() { if ($('lvDate')) lvForm.date = $('lvDate').value; if ($('lvMemo')) lvForm.memo = $('lvMemo').value; }
+  document.addEventListener('change', function (e) {
+    if (location.hash.indexOf('#/leave') !== 0 || !e.target || e.target.id !== 'lvWho') return;
+    lvRead(); lvWho = e.target.value; openLeave();
+  });
+  document.addEventListener('click', function (e) {
+    if (location.hash.indexOf('#/leave') !== 0 || !lvData) return;
+    var t;
+    if ((t = e.target.closest('[data-lvm]'))) {
+      var n = Number(t.getAttribute('data-lvm')), y = lvData.y, m = lvData.m + n;
+      if (n === 0) { var td = new Date(); y = td.getFullYear(); m = td.getMonth() + 1; }
+      if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+      lvYm = y + '-' + (m < 10 ? '0' : '') + m; lvRead(); lvForm.date = lvYm + '-01'; openLeave(); return;
+    }
+    if ((t = e.target.closest('[data-lvtype]'))) { lvRead(); lvForm.type = t.getAttribute('data-lvtype'); renderLeave(); return; }
+    if ((t = e.target.closest('[data-lvhalf]'))) { lvRead(); lvForm.half = t.getAttribute('data-lvhalf'); renderLeave(); return; }
+    if ((t = e.target.closest('[data-lvsee]'))) { e.preventDefault(); lvRead(); lvWho = t.getAttribute('data-lvsee'); openLeave(); window.scrollTo(0, 0); return; }
+    if (e.target.closest('[data-lvadd]')) {
+      lvRead();
+      if (!lvForm.date) { toast('日付を選んでください'); return; }
+      loading(true);
+      call('leaveAdd', { date: lvForm.date, type: lvForm.type, half: lvForm.half, memo: lvForm.memo, staffId: lvData.me.staffId }).then(function (d) {
+        lvData = d; lvYm = d.y + '-' + (d.m < 10 ? '0' : '') + d.m; lvForm.memo = ''; meData = null; calData = null; renderLeave();
+        if (d.warns && d.warns.length) toast(d.warns.join('／')); else okToast('休みを入れました');
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if ((t = e.target.closest('[data-lvdel]'))) {
+      var id = t.getAttribute('data-lvdel');
+      confirmSheet('この休みを取り消しますか？', '取り消す').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('leaveDel', { id: id, ym: lvYm }).then(function (d) { lvData = d; meData = null; calData = null; renderLeave(); okToast('取り消しました'); })
+          .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
+    if (e.target.closest('[data-lvgrant]')) {
+      var days = $('lvGrant').value, memo = $('lvGrantMemo').value;
+      if (!Number(days)) { toast('日数を入れてください'); return; }
+      confirmSheet(lvData.me.name + 'さんに有休を ' + days + '日 付与します', '付与する').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('leaveGrant', { staffId: lvData.me.staffId, days: days, memo: memo, ym: lvYm }).then(function (d) { lvData = d; renderLeave(); okToast('付与しました'); })
+          .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+    }
+  });
+
+  // ---- 売上・件数の集計と予想 ----
+  var stData = null, stTip = {};
+  function openStats() {
+    setNav('#/list', '#/list');
+    $('title').textContent = '売上・件数の集計';
+    if (stData) { renderStats(); return; }
+    loading(true);
+    call('stats').then(function (d) { stData = d; renderStats(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function yen(n) { n = Math.round(Number(n) || 0); return n >= 10000 ? (Math.round(n / 1000) / 10).toLocaleString() + '万円' : n.toLocaleString() + '円'; }
+  function ymLabel(ym) { var p = ym.split('-'); return Number(p[1]) + '月'; }
+  // 棒グラフ（実績＝濃い紺、予想＝うすい・点線のふち、今月＝予約の実績＋予想の残り）
+  function stChart(id, items, unit) {
+    var W = 11, gap = 3, H = 170, top = 12, bottom = 26, left = 30;
+    var max = 0;
+    items.forEach(function (it) { max = Math.max(max, it.v || 0, it.f || 0, it.hi || 0); });
+    var step = (function () { var raw = max / 3 || 1, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; })();
+    var ymax = step * Math.ceil((max || 1) / step), plotH = H - top - bottom;
+    var width = left + items.length * (W + gap) + 4;
+    var y = function (v) { return top + plotH - (v / ymax) * plotH; };
+    var svg = '<svg class="chart" viewBox="0 0 ' + width + ' ' + H + '" role="img" aria-label="' + esc(id) + '">';
+    for (var g = 0; g <= ymax + 1e-9; g += step) {
+      svg += '<line class="g" x1="' + left + '" x2="' + width + '" y1="' + y(g) + '" y2="' + y(g) + '"/><text x="' + (left - 4) + '" y="' + (y(g) + 3) + '" text-anchor="end">' + (unit === '万円' ? Math.round(g / 10000) : Math.round(g)) + '</text>';
+    }
+    items.forEach(function (it, i) {
+      var x = left + i * (W + gap) + 2;
+      var r = function (cls, v0, v1) { if (!(v1 > v0)) return ''; var h = y(v0) - y(v1); return '<rect class="' + cls + '" x="' + x + '" y="' + y(v1) + '" width="' + W + '" height="' + Math.max(h, 0) + '" rx="3"/>'; };
+      if (it.kind === 'act') svg += r('act', 0, it.v);
+      else if (it.kind === 'cur') { svg += r('fc', 0, Math.max(it.f, it.v)); svg += r('cur', 0, it.v); }
+      else svg += r('fc', 0, it.f);
+      var lab = it.ym.split('-');
+      if (lab[1] === '01' || i === 0) svg += '<text x="' + (x + W / 2) + '" y="' + (H - 2) + '" text-anchor="middle">' + lab[0].slice(2) + '年</text>';
+      if (Number(lab[1]) % 3 === 1) svg += '<text x="' + (x + W / 2) + '" y="' + (H - 12) + '" text-anchor="middle">' + Number(lab[1]) + '</text>';
+      svg += '<rect class="hit" x="' + (x - gap / 2) + '" y="' + top + '" width="' + (W + gap) + '" height="' + plotH + '" data-stip="' + esc(id) + '|' + i + '"><title>' + esc(it.tip) + '</title></rect>';
+    });
+    svg += '</svg>';
+    stTip[id] = items;
+    return '<div class="cwrap" style="overflow-x:auto">' + svg + '</div><div class="ckey"><span><i style="background:var(--navy)"></i>実績</span><span><i style="background:#5B7FA8"></i>今月（予約）</span><span><i style="background:#DCE5F0;border:1px dashed #6F87A6"></i>予想</span><span>単位：' + unit + '</span></div><div class="ctip" id="tip-' + esc(id) + '">棒を押すと、その月の数字が出ます</div>';
+  }
+  function renderStats() {
+    var d = stData;
+    if (d.empty) { $('main').innerHTML = '<div class="empty">受注のデータがありません</div>'; return; }
+    var a0 = d.ahead[0], a1 = d.ahead[1];
+    var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。キャンセル・再修理（0円）は入れていません</div>';
+    html += '<div class="tiles">' +
+      '<div class="tile"><div class="v">' + a0.booked + '<small>件</small></div><div class="k">今月（' + ymLabel(a0.ym) + '）の予約・実績<br>着地見込み 約' + Math.round(a0.landing) + '件</div></div>' +
+      '<div class="tile"><div class="v">' + Math.round(a1.n) + '<small>件</small></div><div class="k">来月（' + ymLabel(a1.ym) + '）の予想 ' + a1.lo + '〜' + a1.hi + '件<br>売上 約' + yen(a1.sales) + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyNow.landN + '<small>件</small></div><div class="k">' + d.fyNow.fy + '年度の着地見込み<br>売上 約' + yen(d.fyNow.landSales) + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyNext.n + '<small>件</small></div><div class="k">' + d.fyNext.fy + '年度の予想<br>売上 約' + yen(d.fyNext.sales) + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyPrev.n + '<small>件</small></div><div class="k">' + d.fyPrev.fy + '年度の実績<br>売上 ' + yen(d.fyPrev.sales) + '</div></div>' +
+      '<div class="tile"><div class="v">' + yen(d.price).replace('万円', '<small>万円</small>') + '</div><div class="k">平均単価（直近6か月）</div></div></div>';
+    // 仕入れの目安
+    if (d.buy) {
+      html += '<div class="h2">来月の仕入れの目安</div>' + d.buy.lines.map(function (l, i) { return '<div class="advice' + (i > 0 && /仕入れると/.test(l) ? ' mid' : '') + '">' + esc(l) + '</div>'; }).join('');
+      if (d.buy.rows) html += '<table class="t"><tr><th>棚</th><th style="text-align:right">必要<br><small>余裕2割込み</small></th><th style="text-align:right">今ある</th><th style="text-align:right">未計測から</th><th style="text-align:right">足りない</th></tr>' + d.buy.rows.map(function (r) {
+        return '<tr><td>' + esc(r.label) + '</td><td class="n">' + r.need + '</td><td class="n">' + r.have + '</td><td class="n">' + r.coming + '</td><td class="n" style="' + (r.short ? 'color:#B42318;font-weight:700' : '') + '">' + (r.short ? r.short : '―') + '</td></tr>';
+      }).join('') + '</table><div class="note">本数は「来月の予想件数 × 1件あたりの本数（直近6か月の、グレード・車種の割合から）」。未計測からは、検査の歩留まりで見込んだ本数</div>';
+    }
+    // グラフ：直近24か月＋12か月先
+    var past = d.months.filter(function (m) { return m.ym < d.thisYm; }).slice(-12); // 直近12か月＋今月＋12か月先
+    var itemsN = past.map(function (m) { return { ym: m.ym, kind: 'act', v: m.n, tip: m.ym.replace('-', '年') + '月　' + m.n + '件（再修理 ' + m.re + '件）' }; });
+    var itemsS = past.map(function (m) { return { ym: m.ym, kind: 'act', v: m.sales, tip: m.ym.replace('-', '年') + '月　' + yen(m.sales) }; });
+    d.ahead.forEach(function (a, k) {
+      if (k === 0) {
+        itemsN.push({ ym: a.ym, kind: 'cur', v: a.booked, f: a.landing, tip: a.ym.replace('-', '年') + '月（今月）　予約・実績 ' + a.booked + '件／着地見込み 約' + Math.round(a.landing) + '件' });
+        itemsS.push({ ym: a.ym, kind: 'cur', v: a.bookedSales, f: Math.max(a.bookedSales, a.landing * d.price), tip: a.ym.replace('-', '年') + '月（今月）　予約・実績 ' + yen(a.bookedSales) + '／着地見込み 約' + yen(Math.max(a.bookedSales, a.landing * d.price)) });
+      } else {
+        itemsN.push({ ym: a.ym, kind: 'fc', f: Math.max(a.n, a.booked), tip: a.ym.replace('-', '年') + '月　予想 約' + Math.round(a.n) + '件（' + a.lo + '〜' + a.hi + '件）' + (a.booked ? '　いま予約 ' + a.booked + '件' : '') });
+        itemsS.push({ ym: a.ym, kind: 'fc', f: Math.max(a.sales, a.bookedSales), tip: a.ym.replace('-', '年') + '月　予想 約' + yen(a.sales) });
+      }
+    });
+    html += '<div class="h2">月ごとの件数（バッテリー交換）</div>' + stChart('件数', itemsN, '件');
+    html += '<div class="h2">月ごとの売上</div>' + stChart('売上', itemsS, '万円');
+    // 季節の波
+    var ss = d.season || {};
+    html += '<div class="h2">季節の波（1.00＝平均の月）</div><table class="t"><tr>' + [4, 5, 6, 7, 8, 9].map(function (m) { return '<td style="text-align:center">' + m + '月<br><b>' + (ss[m] || 1).toFixed(2) + '</b></td>'; }).join('') + '</tr><tr>' + [10, 11, 12, 1, 2, 3].map(function (m) { return '<td style="text-align:center">' + m + '月<br><b>' + (ss[m] || 1).toFixed(2) + '</b></td>'; }).join('') + '</tr></table>';
+    html += '<div class="note">予想は、季節の波（' + d.method.years + '年度分）と、季節を除いた直近6か月の勢い（月 約' + d.method.level + '件）、伸び（1か月あたり ' + (d.method.growth >= 0 ? '+' : '') + d.method.growth + '%）から計算しています。データが ' + d.method.months + 'か月分なので' + (d.method.months < 24 ? '、まだぶれやすい目安です' : '、目安として使えます') + '</div>';
+    // 内訳
+    var total = function (list) { return list.reduce(function (a, x) { return a + x.n; }, 0) || 1; };
+    var bars = function (title, list) {
+      if (!list || !list.length) return '';
+      var max = list[0].n || 1, tt = total(list);
+      return '<div class="h2">' + title + '</div>' + list.map(function (x) {
+        return '<div class="rbar"><div class="rl"><span>' + esc(x.k) + '</span><span class="rn">' + x.n + '件　' + Math.round(x.n / tt * 100) + '%　' + yen(x.sales) + '</span></div><div class="rb"><div style="width:' + Math.max(3, x.n / max * 100) + '%"></div></div></div>';
+      }).join('');
+    };
+    html += '<div class="note" style="margin-top:18px">ここから下は直近12か月（終わった分）</div>';
+    html += bars('車種（上位12）', d.by.model) + bars('グレード', d.by.grade) + bars('店舗', d.by.store) + bars('来店・出張・単体など', d.by.kind) + bars('支払方法', d.by.payment);
+    // 表で見る
+    html += '<div class="h2">月ごとの表</div><table class="t"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">再修理</th><th style="text-align:right">その他(A)</th></tr>' +
+      d.months.slice().reverse().slice(0, 24).map(function (m) { return '<tr><td>' + m.ym.replace('-', '/') + '</td><td class="n">' + m.n + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + m.re + '</td><td class="n">' + m.other + '</td></tr>'; }).join('') + '</table>';
+    $('main').innerHTML = html;
+    document.querySelectorAll('.cwrap').forEach(function (el) { el.scrollLeft = el.scrollWidth; }); // 新しい月（と予想）が見えるように
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/stats') return;
+    var t = e.target.closest('[data-stip]'); if (!t) return;
+    var a = t.getAttribute('data-stip').split('|'), it = (stTip[a[0]] || [])[Number(a[1])];
+    var el = $('tip-' + a[0]); if (el && it) el.textContent = it.tip;
+    document.querySelectorAll('.chart rect.sel').forEach(function (r) { r.classList.remove('sel'); });
+    var prev = t.previousElementSibling; while (prev && prev.tagName !== 'rect') prev = prev.previousElementSibling;
+    if (prev && !prev.classList.contains('hit')) prev.classList.add('sel');
+  });
+
+  // ---- 先にばらすユニット ----
+  var plData = null;
+  function openPlan() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '先にばらすユニット';
+    loading(true);
+    call('cntPlan').then(function (d) { plData = d; renderPlan(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function renderPlan() {
+    var d = plData;
+    var html = d.advice.map(function (a) { return '<div class="advice ' + esc(a.level) + '">' + esc(a.text) + '</div>'; }).join('');
+    html += '<div class="h2">種類ごとの棚と、使うはやさ</div><table class="t"><tr><th>種類</th><th style="text-align:right">使用可能</th><th style="text-align:right">半年</th><th style="text-align:right">60日で<br>使用</th><th style="text-align:right">あと</th><th style="text-align:right">ユニ<br>ット</th></tr>' +
+      d.order.map(function (g) {
+        var t = d.types.filter(function (x) { return x.type === g; })[0];
+        return '<tr><td style="white-space:nowrap"><b>' + esc(g) + '</b></td><td class="n">' + t.stock['使用可能'] + '</td><td class="n">' + t.stock['半年'] + '</td><td class="n">' + t.used60 + '</td><td class="n" style="' + (t.days !== null && t.days <= 10 ? 'color:#B42318;font-weight:700' : '') + '">' + (t.days === null ? '―' : '約' + t.days + '日') + '</td><td class="n">' + t.units.length + '台</td></tr>';
+      }).join('') + '</table><div class="note">「あと」＝今の棚の本数 ÷ 直近60日の1日あたりの使用本数（充電開始で棚から出した分）</div>';
+    html += '<div class="h2">置いてあるユニット（まだ検査していない・届いた順）</div>';
+    if (d.unknown) html += '<div class="note">種類が入っていないユニットが ' + d.unknown + '台 あります。わかるものは選んでおくと、上の提案に入ります</div>';
+    html += d.units.length ? d.units.map(function (u) {
+      return '<div class="card"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.since || '') + '</span></div><div class="meta">' + esc([u.kind, u.model, u.n ? u.n + '本' : '', u.src ? u.src.replace('/', ' ') : ''].filter(Boolean).join('・')) + '</div>' +
+        '<select class="f" data-pltype="' + esc(u.unitNo) + '" style="margin-top:6px"><option value="">種類：未登録' + (u.gen ? '（' + u.gen + '）' : '') + '</option>' + d.grades.map(function (g) { return '<option' + (u.type === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select></div>';
+    }).join('') : '<div class="empty">まだ検査していないユニットはありません</div>';
+    html += '<a class="btn sub" href="#/inv/cinsp" style="display:block;text-align:center;text-decoration:none">検査の結果を入れる</a>';
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('change', function (e) {
+    if (location.hash !== '#/inv/plan' || !e.target.getAttribute || !e.target.getAttribute('data-pltype')) return;
+    var no = e.target.getAttribute('data-pltype'), type = e.target.value;
+    call('cntUnitType', { unitNo: no, type: type }).then(function (d) { plData = d; invData = null; renderPlan(); okToast(no + '：' + (type || '種類なし')); }).catch(function (er) { toast(er.message); });
+  });
 
   // ---- アプリに出していない受注（バッテリー交換以外など） ----
   function openHidden() {
@@ -1057,6 +1312,13 @@
     var d = meData;
     var p = d.periods[meTab];
     var html = '<div class="head"><div class="big">' + esc(d.name) + 'さん</div><div class="meta">' + esc(d.role) + '</div></div>';
+    if (d.leave) {
+      var L = d.leave;
+      html += '<a class="card tap" href="#/leave" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + L.m + '月の休み</span><span class="date">休みを入れる・見る ›</span></div>' +
+        '<div class="meta" style="font-size:15px;color:var(--text)">公休 <b>' + fmtDay(L.kokyu) + '</b> / ' + L.allowance + '日（残り ' + fmtDay(L.left) + '日）　有休 <b>' + fmtDay(L.yukyu) + '</b>日（有休の残り ' + fmtDay(L.yLeft) + '日）</div>' +
+        '<div class="pbar' + (L.left < 0 ? ' over' : '') + '" style="margin-top:6px"><div style="width:' + Math.min(100, L.allowance ? L.kokyu / L.allowance * 100 : 0) + '%"></div></div></a>';
+    }
+    if (d.role === '店長' || d.role === '管理者') html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/leave" class="alt">みんなの休み</a></div>';
     html += '<div class="tabs">' + [['thisMonth', '今月'], ['lastMonth', '先月'], ['fiscal', '今年度']].map(function (t) {
       return '<button class="tab' + (meTab === t[0] ? ' on' : '') + '" data-ptab="' + t[0] + '">' + t[1] + '（' + esc(d.periods[t[0]].label) + '）</button>';
     }).join('') + '</div>';
@@ -1500,7 +1762,7 @@
       var df = function (n) { return '<td class="' + (n > 0 ? 'up' : n < 0 ? 'down' : 'z') + '">' + (n > 0 ? '+' : '') + n + '</td>'; };
       html += '<tr class="sub"><td class="rk">前月比</td>' + ks.map(function (k) { return df(mo.cur[k] - mo.prev[k]); }).join('') + df(tc - tp) + '</tr></table>';
     }
-    html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
+    html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/plan">先にばらすユニット</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
     if (C && C.repairOrders.length) html += '<div class="meta" style="margin:-4px 0 8px">修理用の内訳：' + C.repairOrders.map(function (x) { return '<a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a> ' + x.n + '本'; }).join('・') + '</div>';
     if (C && C.recent.length) html += '<table class="t">' + C.recent.map(function (x) { return '<tr><td class="meta">' + esc(x.at) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + (x.key ? '<span class="meta">（' + esc(x.key) + '）</span>' : '') + '</td><td class="n">' + x.n + '</td></tr>'; }).join('') + '</table>';
     html += '<div class="h2">QRで1本ずつ</div><div class="btns"><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
@@ -1732,7 +1994,7 @@
       if ((t = e.target.closest('[data-ciu]'))) {
         var no = t.getAttribute('data-ciu');
         ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
-        ci.src = ci.unit.src || ''; ci.grade = ''; ci.rows = null; renderCntInspect(); window.scrollTo(0, 0); return;
+        ci.src = ci.unit.src || (ci.unit.type === 'G3' ? '未計測/G3' : ci.unit.type ? '未計測/G2' : ''); ci.grade = ci.unit.type || ''; ci.rows = null; renderCntInspect(); window.scrollTo(0, 0); return;
       }
       if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; ci.rows = null; renderCntInspect(); return; }
       if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; ci.rows = null; renderCntInspect(); return; }
@@ -1774,7 +2036,11 @@
   });
 
   // ---- 入庫 ----
-  var inMode = '戻り', inUnit = '', inLast = null, inCell = 'G2';
+  var inMode = '戻り', inUnit = '', inLast = null, inCell = 'G2', inType = '';
+  // ユニットの種類（見込み）：G2-1〜G3。わからなければ G2・G3 だけ
+  var UTYPES = [['G2-1', 'G2-1'], ['G2-2', 'G2-2'], ['G2-3', 'G2-3'], ['G3', 'G3'], ['?G2', 'G2（細かくは不明）'], ['?G3', 'G3（細かくは不明）']];
+  function utypeVal(type, cell) { return type || (cell === 'G3' ? '?G3' : '?G2'); }
+  function utypeSplit(v) { return /^\?/.test(v) ? { type: '', cell: v.slice(1) } : { type: v, cell: v === 'G3' ? 'G3' : 'G2' }; }
   function openInbound() {
     setNav('#/inv', '#/inv');
     $('title').textContent = '入庫';
@@ -1802,7 +2068,7 @@
       html += d.collect.length ? d.collect.map(function (u) {
         return '<div class="card tap' + (inUnit === u.unitNo ? ' sel' : '') + '" data-inunit="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.at) + '</span></div><div class="meta">' + esc(u.model) + '　' + esc(u.order) + '</div></div>';
       }).join('') : '<div class="empty">回収待ちのユニットはありません</div>';
-      if (inUnit) html += '<div class="lbl2">② 未計測のどちらに入れるか</div><div class="seg">' + ['G2', 'G3'].map(function (x) { return '<button data-incell="' + x + '"' + (inCell === x ? ' class="on"' : '') + '>未計測 ' + x + '</button>'; }).join('') + '</div>' +
+      if (inUnit) html += '<div class="lbl2">② 種類（G2-1〜G3。わからなければ G2・G3 だけ）</div><div class="seg wrap">' + UTYPES.map(function (x) { return '<button data-intype="' + x[0] + '"' + (utypeVal(inType, inCell) === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>' +
         '<div class="lbl2">③ ユニットケースのバーコードを読む</div>' + scanBox('incase', 'ケースの製造番号') +
         '<button class="btn sub" data-innocase="1">ケースの番号なしで入庫する</button>';
     } else {
@@ -1825,7 +2091,7 @@
   function buyReset() {
     var t = new Date();
     buy = { date: t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2),
-      supplier: '', prefix: '', tax: '', loose: false, looseQty: '', lines: [{ model: '', count: 1 }], newUnits: 1, newPer: 28, price: '', note: '' };
+      supplier: '', prefix: '', tax: '', loose: false, looseQty: '', lines: [{ model: '', count: 1, type: '', cell: 'G2' }], newUnits: 1, newPer: 28, price: '', note: '' };
   }
   function buySup(d) {
     var list = (d.buy && d.buy.suppliers) || [];
@@ -1876,10 +2142,11 @@
             return '<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><select class="f" data-bline="' + i + '" data-bk="model" style="flex:2"><option value="">車種を選ぶ</option>' +
               d.models.map(function (m) { return '<option' + (m.model === l.model ? ' selected' : '') + '>' + esc(m.model) + '</option>'; }).join('') + '</select>' +
               '<input class="f" type="number" inputmode="numeric" data-bline="' + i + '" data-bk="count" value="' + esc(l.count) + '" style="flex:1;min-width:0">' +
-              '<span class="meta">台</span>' + (buy.lines.length > 1 ? '<button class="btn sub" data-bdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>';
-          }).join('') + '<button class="btn sub" data-badd="1">＋ 車種を足す</button>';
+              '<span class="meta">台</span>' + (buy.lines.length > 1 ? '<button class="btn sub" data-bdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
+              '<select class="f" data-bline="' + i + '" data-bk="ut" style="margin:-2px 0 8px">' + UTYPES.map(function (x) { return '<option value="' + x[0] + '"' + (utypeVal(l.type, l.cell) === x[0] ? ' selected' : '') + '>種類：' + x[1] + '</option>'; }).join('') + '</select>';
+          }).join('') + '<button class="btn sub" data-badd="1">＋ 車種を足す</button>' +
+          '<div class="note">種類がちがうものは、行を分けてください（同じ車種でも G2-2 と G2-3 なら2行）</div>';
           var pre = buy.prefix || sup.prefix;
-          h += '<div class="lbl2">未計測のどちらに入れるか</div><div class="seg">' + ['G2', 'G3'].map(function (x) { return '<button data-bcell="' + x + '"' + ((buy.cell || 'G2') === x ? ' class="on"' : '') + '>未計測 ' + x + '</button>'; }).join('') + '</div>';
           h += '<div class="lbl2">番号の頭</div><div class="seg">' + d.buy.prefixes.map(function (x) { return '<button data-bpre="' + x + '"' + (pre === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>';
         }
       }
@@ -1921,7 +2188,10 @@
     if (g('bLooseQty') !== null) buy.looseQty = g('bLooseQty');
     if (g('bNewUnits') !== null) buy.newUnits = g('bNewUnits');
     if (g('bNewPer') !== null) buy.newPer = g('bNewPer');
-    document.querySelectorAll('[data-bline]').forEach(function (el) { buy.lines[Number(el.getAttribute('data-bline'))][el.getAttribute('data-bk')] = el.value; });
+    document.querySelectorAll('[data-bline]').forEach(function (el) {
+      var l = buy.lines[Number(el.getAttribute('data-bline'))], k = el.getAttribute('data-bk');
+      if (k === 'ut') { var sp = utypeSplit(el.value); l.type = sp.type; l.cell = sp.cell; } else l[k] = el.value;
+    });
   }
   function buySave() {
     buyRead();
@@ -1941,14 +2211,14 @@
     });
   }
   function doInbound(serial) {
-    var p = { kind: inMode, caseSerial: serial || '', cell: inCell };
+    var p = { kind: inMode, caseSerial: serial || '', cell: inCell, type: inType };
     if (inMode === '戻り') { if (!inUnit) { toast('先に届いたユニットを選んでください'); return; } p.unitNo = inUnit; }
     else {
       p.model = $('inModel').value; p.supplier = $('inSup').value; p.price = $('inPrice').value; p.oldNo = $('inOld').value;
       if (!p.model) { toast('車種を選んでください'); return; }
     }
     return call('invInbound', p).then(function (r) {
-      inLast = r; inUnit = '';
+      inLast = r; inUnit = ''; inType = ''; inCell = 'G2';
       return invLoad(true).then(renderInbound);
     }).catch(function (e) { toast(e.message); });
   }
@@ -2039,13 +2309,14 @@
     if ((t = e.target.closest('[data-inunit]'))) { inUnit = t.getAttribute('data-inunit'); renderInbound(); return; }
     if ((t = e.target.closest('[data-innocase]'))) { doInbound(''); return; }
     if ((t = e.target.closest('[data-incell]'))) { inCell = t.getAttribute('data-incell'); renderInbound(); return; }
+    if ((t = e.target.closest('[data-intype]'))) { var sp = utypeSplit(t.getAttribute('data-intype')); inType = sp.type; inCell = sp.cell; renderInbound(); return; }
     if ((t = e.target.closest('[data-bcell]'))) { buyRead(); buy.cell = t.getAttribute('data-bcell'); renderInbound(); return; }
     // 仕入れ
     if ((t = e.target.closest('[data-bsup]'))) { buyRead(); buy.supplier = t.getAttribute('data-bsup'); buy.prefix = ''; buy.tax = ''; renderInbound(); return; }
     if ((t = e.target.closest('[data-bloose]'))) { buyRead(); buy.loose = t.getAttribute('data-bloose') === '1'; renderInbound(); return; }
     if ((t = e.target.closest('[data-bpre]'))) { buyRead(); buy.prefix = t.getAttribute('data-bpre'); renderInbound(); return; }
     if ((t = e.target.closest('[data-btax]'))) { buyRead(); buy.tax = t.getAttribute('data-btax'); renderInbound(); return; }
-    if ((t = e.target.closest('[data-badd]'))) { buyRead(); buy.lines.push({ model: '', count: 1 }); renderInbound(); return; }
+    if ((t = e.target.closest('[data-badd]'))) { buyRead(); var pl = buy.lines[buy.lines.length - 1] || {}; buy.lines.push({ model: '', count: 1, type: pl.type || '', cell: pl.cell || 'G2' }); renderInbound(); return; }
     if ((t = e.target.closest('[data-bdel]'))) { buyRead(); buy.lines.splice(Number(t.getAttribute('data-bdel')), 1); renderInbound(); return; }
     if ((t = e.target.closest('[data-bsave]'))) { buySave(); return; }
     if ((t = e.target.closest('[data-buynew]'))) { buyLast = null; buyCaseUnit = ''; renderInbound(); return; }
