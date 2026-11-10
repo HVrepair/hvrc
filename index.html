@@ -135,7 +135,9 @@
   .panel .cnt { font-size: 22px; font-weight: 700; color: var(--navy); }
   .lanes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
   .crow { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
-  .cal .dc { position: relative; }
+  .cal .dc { position: relative; min-width: 0; overflow: hidden; }
+  .dc .evb { display: block; font-size: 9px; line-height: 13px; color: #4A3480; background: #EDE7F6; border-left: 2px solid #6B4FA0; border-radius: 2px; padding: 0 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+  .card.evc { border-left: 4px solid #6B4FA0; }
   .dc .lv { margin-left: 2px; font-size: 10px; color: #7A4B00; background: #FFE8B3; border-radius: 4px; padding: 0 3px; line-height: 15px; }
   .pbar.over div { background: #B42318; }
   .advice { border-radius: 12px; padding: 10px 12px; margin: 8px 0; font-size: 15px; line-height: 1.5; background: #F3F6FA; border: 1px solid var(--line); }
@@ -231,7 +233,7 @@
   .calhead b { font-size: 19px; }
   .calhead button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font-size: 16px; color: var(--navy); }
   .calhead .thism { font-size: 13px; padding: 8px 10px; }
-  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
   .cal .wd { text-align: center; font-size: 12px; color: var(--sub); padding: 2px 0; }
   .cal .wd.sun, .cal .dc.sun .dn { color: #B42318; } .cal .wd.sat, .cal .dc.sat .dn { color: #2563A8; }
   .cal .dc { background: #fff; border: 1px solid var(--line); border-radius: 8px; min-height: 58px; padding: 3px 3px 4px; text-align: left; font: inherit; color: var(--text); display: flex; flex-direction: column; gap: 2px; }
@@ -309,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10f';
+  var SCREEN_VERSION = '2026-11-10g';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -474,7 +476,7 @@
   }
 
   // ---- 予定（カレンダー） ----
-  var calData = null, calSel = 0;
+  var calData = null, calSel = 0, evOpen = false;
   var STORE_COLOR = { '苅田': '#1B2A3A', '行橋': '#1B2A3A', 'インター': '#2563A8', '大橋': '#2563A8', '出張': '#F28C28', '営業': '#2E7D4F' };
   function calColor(o) { return o.kind === '再修理' ? '#B42318' : (STORE_COLOR[o.store] || '#8A8F96'); }
   function openCal(ym) {
@@ -508,12 +510,12 @@
       var list = d.days[day] || [], wd = (first + day - 1) % 7;
       html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === calSel ? ' sel' : '') + '" data-cald="' + day + '">' +
         '<span style="display:flex;align-items:center"><span class="dn">' + day + '</span>' + ((d.leaves || {})[day] ? '<span class="lv">休' + (d.leaves[day].length > 1 ? d.leaves[day].length : '') + '</span>' : '') + (list.length ? '<span class="cnt">' + list.length + '</span>' : '') + '</span>' +
-        '<span class="bars">' +
+        '<span class="bars">' + ((d.events || {})[day] || []).slice(0, 2).map(function (ev) { return '<span class="evb">' + esc(ev.title) + '</span>'; }).join('') +
         list.slice(0, 4).map(function (o) { return '<span class="bar" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.35' : '') + '"></span>'; }).join('') +
         (list.length > 4 ? '<span class="more">＋' + (list.length - 4) + '</span>' : '') + '</span></button>';
     }
     html += '</div>';
-    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>薄い色＝完了</span></div>';
+    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>薄い色＝完了</span></div>';
     html += '<div class="note">この月 ' + d.count + ' 件</div>';
     if (calSel) {
       var sel = d.days[calSel] || [];
@@ -522,6 +524,19 @@
       var lvs = (d.leaves || {})[calSel] || [];
       html += '<div class="note" style="margin:-4px 0 8px">' + (lvs.length ? '休み：' + lvs.map(function (x) { return esc(x.name) + '（' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + '）'; }).join('　') : '休みの人はいません') +
         '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>';
+      // 修理以外の予定
+      var evs = (d.events || {})[calSel] || [];
+      html += evs.map(function (ev) {
+        return '<div class="card evc"><div class="row1"><span class="no">' + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
+          '<div class="meta">' + esc([ev.store, ev.memo, '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
+          (me && (ev.by === me.name || me.role === '店長' || me.role === '管理者') ? '<button type="button" class="mini" data-evdel="' + esc(ev.id) + '" style="margin-top:6px">取り消す</button>' : '') + '</div>';
+      }).join('');
+      if (evOpen) {
+        html += '<div class="card evc"><div class="row1"><span class="no">' + d.m + '/' + calSel + ' に予定を入れる</span></div>' +
+          '<input class="f" id="evTitle" placeholder="内容（例：〇〇自動車 来店・打ち合わせ・部品の納品）">' +
+          '<div style="display:flex;gap:6px"><input class="f" type="time" id="evTime" style="flex:1;min-width:0"><select class="f" id="evStore" style="flex:1;min-width:0"><option value="">店舗（なくても可）</option><option>苅田</option><option>インター</option><option>出張</option><option>営業</option></select></div>' +
+          '<input class="f" id="evMemo" placeholder="メモ（なくても可）"><button class="btn" data-evsave="1">予定を入れる</button><button class="btn sub" data-evclose="1">やめる</button></div>';
+      } else html += '<button class="btn sub" data-evopen="1">＋ 修理以外の予定を入れる</button>';
       html += sel.length ? sel.map(function (o) {
         var full = o.pct >= 100;
         return '<div class="card tap" data-key="' + esc(o.key) + '">' +
@@ -542,7 +557,26 @@
       if (n === 0) { location.hash = '#/cal/' + new Date().getFullYear() + '-' + (new Date().getMonth() + 1); return; }
       calShift(n); return;
     }
-    if ((t = e.target.closest('[data-cald]'))) { calSel = Number(t.getAttribute('data-cald')); renderCal(); return; }
+    if ((t = e.target.closest('[data-cald]'))) { calSel = Number(t.getAttribute('data-cald')); evOpen = false; renderCal(); return; }
+    if (e.target.closest('[data-evopen]')) { evOpen = true; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
+    if (e.target.closest('[data-evclose]')) { evOpen = false; renderCal(); return; }
+    if (e.target.closest('[data-evsave]')) {
+      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value };
+      if (!ev.title.trim()) { toast('内容を入れてください'); return; }
+      loading(true);
+      call('eventAdd', ev).then(function (r) { calData.events = r.events; evOpen = false; renderCal(); okToast('予定を入れました'); })
+        .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if ((t = e.target.closest('[data-evdel]'))) {
+      var eid = t.getAttribute('data-evdel');
+      confirmSheet('この予定を取り消しますか？', '取り消す').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('eventDel', { id: eid }).then(function (r) { calData.events = r.events; renderCal(); okToast('取り消しました'); })
+          .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+    }
   });
 
   // ---- 一覧 ----
