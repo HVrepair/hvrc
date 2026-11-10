@@ -309,7 +309,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10c';
+  var SCREEN_VERSION = '2026-11-10f';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -467,6 +467,7 @@
     else if (h === '#/leave' || h.indexOf('#/leave/') === 0) openLeave(h.split('/')[2] || '');
     else if (h === '#/stats') openStats();
     else if (h === '#/inv/plan') openPlan();
+    else if (h === '#/inv/suppliers') openSuppliers();
     else if (h === '#/rere') openRe();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
@@ -726,10 +727,14 @@
       '<div class="tile"><div class="v">' + yen(d.price).replace('万円', '<small>万円</small>') + '</div><div class="k">平均単価（直近6か月）</div></div></div>';
     // 仕入れの目安
     if (d.buy) {
-      html += '<div class="h2">来月の仕入れの目安</div>' + d.buy.lines.map(function (l, i) { return '<div class="advice' + (i > 0 && /仕入れると/.test(l) ? ' mid' : '') + '">' + esc(l) + '</div>'; }).join('');
-      if (d.buy.rows) html += '<table class="t"><tr><th>棚</th><th style="text-align:right">必要<br><small>余裕2割込み</small></th><th style="text-align:right">今ある</th><th style="text-align:right">未計測から</th><th style="text-align:right">足りない</th></tr>' + d.buy.rows.map(function (r) {
-        return '<tr><td>' + esc(r.label) + '</td><td class="n">' + r.need + '</td><td class="n">' + r.have + '</td><td class="n">' + r.coming + '</td><td class="n" style="' + (r.short ? 'color:#B42318;font-weight:700' : '') + '">' + (r.short ? r.short : '―') + '</td></tr>';
-      }).join('') + '</table><div class="note">本数は「来月の予想件数 × 1件あたりの本数（直近6か月の、グレード・車種の割合から）」。未計測からは、検査の歩留まりで見込んだ本数</div>';
+      html += '<div class="h2">来月の仕入れの目安</div>' + d.buy.lines.map(function (l) { return '<div class="advice' + (/^【仕入れる台数/.test(l) ? ' mid' : '') + '">' + esc(l) + '</div>'; }).join('');
+      if (d.buy.rows) html += d.buy.rows.map(function (r) {
+        var parts = [['今ある', r.have], ['未計測から', r.pend], ['回収待ちから', r.collect], ['到着待ちから', r.buying], ['来月の戻りから', r.nextRet], ['使用可能の余りから', r.fromUsable || 0]].filter(function (x) { return x[1]; });
+        return '<div class="card"><div class="row1"><span class="no">' + esc(r.label) + '</span><span class="date" style="' + (r.short ? 'color:#B42318;font-weight:700' : '') + '">' + (r.short ? r.short + '本 足りない' + (r.units ? '（約' + r.units + '台）' : '') : '足りる') + '</span></div>' +
+          '<div class="meta">必要 ' + r.need + '本（余裕2割込み）　←　' + (parts.length ? parts.map(function (x) { return x[0] + ' ' + x[1]; }).join('＋') : 'なし') + '</div>' +
+          (r.unitsNoRet > r.units ? '<div class="meta">来月の戻りを数えないと ' + r.shortNoRet + '本 足りない（約' + r.unitsNoRet + '台）</div>' : '') + '</div>';
+      }).join('') + '<div class="note">「未計測から」「回収待ちから」「到着待ちから」「来月の戻りから」は、検査の歩留まりをかけた、使える見込みの本数です。回収待ち＝修理で外して、まだ店に届いていない電池（' + (d.buy.collectUnits || 0) + '台）。到着待ち＝予備登録した仕入れ（' + (d.buy.buyingUnits || 0) + '台）</div>' +
+        '<a class="btn sub" href="#/inv/suppliers" style="display:block;text-align:center;text-decoration:none">仕入先の成績を見る</a>';
     }
     // グラフ：直近24か月＋12か月先
     var past = d.months.filter(function (m) { return m.ym < d.thisYm; }).slice(-12); // 直近12か月＋今月＋12か月先
@@ -776,6 +781,28 @@
     var prev = t.previousElementSibling; while (prev && prev.tagName !== 'rect') prev = prev.previousElementSibling;
     if (prev && !prev.classList.contains('hit')) prev.classList.add('sel');
   });
+
+  // ---- 仕入先の成績 ----
+  function openSuppliers() {
+    setNav('#/inv', '#/inv/in');
+    $('title').textContent = '仕入先の成績';
+    loading(true);
+    call('invSupStats').then(function (d) {
+      var col = { 'おすすめ': '#2E7D4F', 'ふつう': '#55606E', '割高': '#B26A00', 'やめたほうがよい': '#B42318', 'まだ少ない': '#8A94A3', '参考': '#8A94A3' };
+      var html = '<div class="note">検査の結果を入れた購入ユニットを、仕入先ごとにまとめました。「使える」＝2年・1年・半年のどれかになった本数。1本あたり＝仕入金額（税別）÷ 使えた本数</div>';
+      html += d.list.length ? d.list.map(function (x) {
+        var bar = function (p, c) { return '<div style="flex:' + Math.max(p, 0) + ';background:' + c + ';height:10px"></div>'; };
+        return '<div class="card"><div class="row1"><span class="no">' + esc(x.name) + '</span><span class="chip" style="background:' + col[x.verdict] + ';color:#fff">' + esc(x.verdict) + '</span></div>' +
+          '<div class="meta">' + esc(x.why) + '</div>' +
+          '<div style="display:flex;border-radius:5px;overflow:hidden;margin:8px 0 4px;gap:2px">' + bar(x.p1, '#1B2A3A') + bar(x.pHalf, '#7B93B3') + bar(x.pJunk, '#E3A49C') + '</div>' +
+          '<div class="meta">1年以上 ' + x.p1 + '%・半年 ' + x.pHalf + '%・ジャンク ' + x.pJunk + '%　（' + x.units + '台・' + x.total + '本）</div>' +
+          '<div class="meta">' + (x.perUnit ? '1台 平均 ' + x.perUnit.toLocaleString() + '円' : '金額なし') + (x.perUse ? '・使える1本あたり <b>' + x.perUse.toLocaleString() + '円</b>' : '') + (x.models.length ? '　多い車種：' + esc(x.models.join('・')) : '') + '</div></div>';
+      }).join('') + '<div class="ckey"><span><i style="background:#1B2A3A"></i>1年以上に使える</span><span><i style="background:#7B93B3"></i>半年用</span><span><i style="background:#E3A49C"></i>ジャンク</span></div>' +
+        '<div class="note">判断のしかた：3台以上検査した仕入先だけ。ジャンクが半分以上＝やめたほうがよい／1年以上が半分以上で1本あたりがふつう以下＝おすすめ／1本あたりがふつうの1.5倍以上＝割高' + (d.median ? '（ふつう＝' + d.median.toLocaleString() + '円）' : '') + '</div>'
+        : '<div class="empty">まだ検査の結果がありません。検査を入れると、ここに出ます</div>';
+      $('main').innerHTML = html;
+    }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
 
   // ---- 先にばらすユニット ----
   var plData = null;
@@ -2087,7 +2114,7 @@
   }
   document.addEventListener('input', buyLive);
   document.addEventListener('change', buyLive);
-  var buy = null, buyLast = null, buyCaseUnit = '', buyList = null;
+  var buy = null, buyLast = null, buyCaseUnit = '', buyList = null, buyPending = null, buyPlan = false, arrId = '';
   function buyReset() {
     var t = new Date();
     buy = { date: t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2),
@@ -2125,7 +2152,9 @@
       }
       h += '<button class="btn sub" data-buynew="1">続けて別の仕入れを登録する</button>';
     } else {
-      h += '<div class="lbl2">届いた日</div><input class="f" type="date" id="bDate" value="' + esc(buy.date) + '">';
+      h += '<div class="seg"><button data-bplan="0"' + (!buyPlan ? ' class="on"' : '') + '>届いた（本登録）</button><button data-bplan="1"' + (buyPlan ? ' class="on"' : '') + '>まだ届いていない（予備登録）</button></div>';
+      if (buyPlan) h += '<div class="note">買ったけれどまだ届いていない分を入れておきます。番号はまだ付きません。届いたら下の「到着待ち」から「届いた」を押すと本登録になります</div>';
+      h += '<div class="lbl2">' + (buyPlan ? '届く予定の日（わからなければ空）' : '届いた日') + '</div><input class="f" type="date" id="bDate" value="' + esc(buyPlan && buy.date === buyToday() ? '' : buy.date) + '">';
       h += '<div class="lbl2">購入先</div><div class="seg">' + d.buy.suppliers.map(function (s) {
         return '<button data-bsup="' + esc(s.name) + '"' + (buy.supplier === s.name ? ' class="on"' : '') + '>' + esc(s.name) + '</button>';
       }).join('') + '</div>';
@@ -2156,9 +2185,11 @@
           '<div class="seg"><button data-btax="税込"' + (tax === '税込' ? ' class="on"' : '') + '>税込</button><button data-btax="税別"' + (tax === '税別' ? ' class="on"' : '') + '>税別</button></div>' +
           '<div class="lbl2">メモ（出品者・取引No.など。なくても可）</div><input class="f" id="bNote" value="' + esc(buy.note) + '">';
         var t = buyTotals(d);
-        h += '<div class="panel" id="bSum">' + esc(buySumText(d)) + '</div><button class="btn" data-bsave="1">登録する</button>';
+        h += '<div class="panel" id="bSum">' + esc(buySumText(d)) + '</div><button class="btn" data-bsave="1">' + (buyPlan ? '予備登録する（到着待ち）' : '登録する') + '</button>';
       }
     }
+    h += '<div class="lbl2" style="margin-top:22px">到着待ち（予備登録）</div><div id="bPend">' + buyPendHtml() + '</div>';
+    h += '<a class="btn sub" href="#/inv/suppliers" style="display:block;text-align:center;text-decoration:none">仕入先の成績（どこから買うと使えるか）</a>';
     h += '<div class="lbl2" style="margin-top:22px">最近の仕入れ</div><div id="bList">' + buyListHtml() + '</div>';
     if (!buyList) buyLoadList();
     return h;
@@ -2177,8 +2208,28 @@
         (b.canCancel ? '<button class="btn sub" data-bcancel="' + esc(b.id) + '" style="margin-top:8px">まちがえたので取り消す</button>' : '') + '</div>';
     }).join('');
   }
+  function buyToday() { var t = new Date(); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
+  function buyPendHtml() {
+    if (!buyPending) return '<div class="meta">読み込み中…</div>';
+    if (!buyPending.length) return '<div class="empty">到着待ちはありません</div>';
+    return buyPending.map(function (b) {
+      var h = '<div class="card"><div class="row1"><span class="no">' + esc(b.id) + '</span><span class="date">届く予定 ' + esc(b.date) + '</span></div>' +
+        '<div class="meta">' + esc(b.supplier + '　' + b.detail + '　' + b.qty + '本・税別 ' + Number(b.ex).toLocaleString() + '円　' + b.by + '（' + b.at + ' 予備登録）') + (b.note ? '<br>' + esc(b.note) : '') + '</div>';
+      if (arrId === b.id) {
+        h += '<div class="lbl2">届いた日</div><input class="f" type="date" id="arrDate" value="' + buyToday() + '">';
+        if (b.lines && b.lines.length) h += '<div class="lbl2">届いた台数（少なければ、残りは到着待ちのまま）</div>' + b.lines.map(function (l, i) {
+          return '<div style="display:flex;gap:6px;align-items:center;margin:4px 0"><span style="flex:2">' + esc(l.model + (l.type ? '（' + l.type + '）' : '')) + '</span><input class="f" type="number" inputmode="numeric" data-arrn="' + i + '" value="' + l.count + '" style="flex:1;min-width:0"><span class="meta">/ ' + l.count + '台</span></div>';
+        }).join('');
+        h += '<div class="lbl2">金額（変わったときだけ。全部で）</div><input class="f" type="number" inputmode="numeric" id="arrPrice" placeholder="' + esc(String(b.plan && b.plan.price !== undefined ? b.plan.price : '')) + '（' + esc((b.plan && b.plan.tax) || '') + '）">' +
+          '<button class="btn" data-arrsave="' + esc(b.id) + '">この内容で本登録（番号を付ける）</button><button class="btn sub" data-arrclose="1">やめる</button>';
+      } else {
+        h += '<div class="btns two" style="margin-top:8px"><button class="btn" data-arropen="' + esc(b.id) + '" style="margin:0">届いた</button><button class="btn sub" data-bcancel="' + esc(b.id) + '" style="margin:0">取り消す</button></div>';
+      }
+      return h + '</div>';
+    }).join('');
+  }
   function buyLoadList() {
-    call('invBuyList').then(function (r) { buyList = r.list; var el = $('bList'); if (el) el.innerHTML = buyListHtml(); }).catch(function () { buyList = []; });
+    call('invBuyList').then(function (r) { buyList = r.list; buyPending = r.pending || []; var el = $('bList'); if (el) el.innerHTML = buyListHtml(); var ep = $('bPend'); if (ep) ep.innerHTML = buyPendHtml(); }).catch(function () { buyList = []; buyPending = []; });
   }
   function buyRead() {
     var g = function (id) { var el = $(id); return el ? el.value : null; };
@@ -2200,12 +2251,13 @@
     if (String(buy.price).trim() === '') { toast('金額を入れてください（無料なら 0）'); return; }
     if (!t.qty) { toast(sup.isNew ? '台数を入れてください' : buy.loose ? '本数を入れてください' : '車種と台数を入れてください'); return; }
     var p = { date: buy.date, supplier: sup.name, prefix: buy.prefix || sup.prefix || '', tax: buy.tax || sup.tax, price: buy.price, note: buy.note,
-      loose: !!buy.loose, looseQty: buy.looseQty, lines: buy.lines, newUnits: buy.newUnits, newPer: buy.newPer, cell: buy.cell || 'G2' };
-    confirmSheet(sup.name + '　' + buySumText(d) + '\nこの内容で登録しますか？', '登録する').then(function (ok) {
+      loose: !!buy.loose, looseQty: buy.looseQty, lines: buy.lines, newUnits: buy.newUnits, newPer: buy.newPer, cell: buy.cell || 'G2', plan: buyPlan };
+    confirmSheet(sup.name + '　' + buySumText(d) + '\n' + (buyPlan ? '「到着待ち」で予備登録しますか？（番号はまだ付きません）' : 'この内容で登録しますか？'), buyPlan ? '予備登録する' : '登録する').then(function (ok) {
       if (!ok) return;
       loading(true);
       call('invBuy', p).then(function (r) {
-        buyLast = r; buyCaseUnit = ''; buyList = null; buyReset();
+        if (p.plan) { buyList = r.list; buyPending = r.pending || []; buyReset(); buyPlan = false; toast(r.note); renderInbound(); return; }
+        buyLast = r; buyCaseUnit = ''; buyList = null; buyPending = null; buyReset();
         return invLoad(true).then(renderInbound);
       }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     });
@@ -2319,6 +2371,23 @@
     if ((t = e.target.closest('[data-badd]'))) { buyRead(); var pl = buy.lines[buy.lines.length - 1] || {}; buy.lines.push({ model: '', count: 1, type: pl.type || '', cell: pl.cell || 'G2' }); renderInbound(); return; }
     if ((t = e.target.closest('[data-bdel]'))) { buyRead(); buy.lines.splice(Number(t.getAttribute('data-bdel')), 1); renderInbound(); return; }
     if ((t = e.target.closest('[data-bsave]'))) { buySave(); return; }
+    if ((t = e.target.closest('[data-bplan]'))) { buyRead(); buyPlan = t.getAttribute('data-bplan') === '1'; if (!buyPlan && !buy.date) buy.date = buyToday(); renderInbound(); return; }
+    if ((t = e.target.closest('[data-arropen]'))) { arrId = t.getAttribute('data-arropen'); var ep = $('bPend'); if (ep) ep.innerHTML = buyPendHtml(); return; }
+    if ((t = e.target.closest('[data-arrclose]'))) { arrId = ''; var ep2 = $('bPend'); if (ep2) ep2.innerHTML = buyPendHtml(); return; }
+    if ((t = e.target.closest('[data-arrsave]'))) {
+      var aid = t.getAttribute('data-arrsave'), counts = [];
+      document.querySelectorAll('[data-arrn]').forEach(function (el) { counts[Number(el.getAttribute('data-arrn'))] = el.value; });
+      var ap = { id: aid, date: $('arrDate').value, counts: counts, price: $('arrPrice').value };
+      confirmSheet(aid + ' を本登録します（番号を付けて、未計測・棚卸表に入れます）', '本登録する').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('invBuyArrive', ap).then(function (r) {
+          arrId = ''; buyLast = r.arrived; buyCaseUnit = ''; buyList = r.list; buyPending = r.pending || []; toast(r.note);
+          return invLoad(true).then(renderInbound);
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
     if ((t = e.target.closest('[data-buynew]'))) { buyLast = null; buyCaseUnit = ''; renderInbound(); return; }
     if ((t = e.target.closest('[data-buycase]'))) {
       buyCaseUnit = t.getAttribute('data-buycase'); renderInbound();
@@ -2327,9 +2396,10 @@
     }
     if ((t = e.target.closest('[data-bcancel]'))) {
       var bid = t.getAttribute('data-bcancel');
-      confirmSheet(bid + ' の仕入れを取り消しますか？（ユニットは「取消」になり、棚卸表の行も消えます。番号は戻りません）', '取り消す').then(function (ok) {
+      var isPend = (buyPending || []).some(function (x) { return x.id === bid; });
+      confirmSheet(isPend ? bid + '（到着待ち）を取り消しますか？' : bid + ' の仕入れを取り消しますか？（ユニットは「取消」になり、棚卸表の行も消えます。番号は戻りません）', '取り消す').then(function (ok) {
         if (!ok) return;
-        call('invBuyCancel', { id: bid }).then(function (r) { buyList = r.list; toast(r.note); return invLoad(true).then(renderInbound); }).catch(function (er) { toast(er.message); });
+        call('invBuyCancel', { id: bid }).then(function (r) { buyList = r.list; buyPending = r.pending || []; toast(r.note); return invLoad(true).then(renderInbound); }).catch(function (er) { toast(er.message); });
       });
       return;
     }
