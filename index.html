@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10j';
+  var SCREEN_VERSION = '2026-11-10l';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -822,22 +822,30 @@
 
   // ---- ジャンクの売却（有価物として売上に） ----
   var jkData = null, jkForm = null;
+  // 1回の売却に売り方を何行でも（例：28本×10台＋20本×15台）。売り方ごとに 数量・単価・金額 を入れる。数量が空の売り方は入れない
+  function jkNewForm(d, keep) {
+    keep = keep || {};
+    return { date: keep.date || buyToday(), buyer: keep.buyer || d.buyers[0] || '', pay: keep.pay || '現金', memo: '',
+      lines: d.kinds.map(function (k) { return { kind: k.name, per: k.per, qty: '', price: '', total: '', touched: false }; }) };
+  }
   function openJunk() {
     setNav('#/inv', '#/inv');
     $('title').textContent = 'ジャンクの売却';
     loading(true);
-    call('invJunk').then(function (d) { jkData = d; if (!jkForm) jkForm = { date: buyToday(), buyer: d.buyers[0] || '', kind: d.kinds[0].name, qty: '', price: '', total: '', pay: '現金', memo: '' }; jkPrice(); renderJunk(); })
+    call('invJunk').then(function (d) { jkData = d; if (!jkForm || !jkForm.lines) jkForm = jkNewForm(d); jkPrice(); renderJunk(); })
       .catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
-  function jkPrice() { var l = jkData.last[jkForm.buyer + '|' + jkForm.kind]; if (l && !jkForm.priceTouched) jkForm.price = String(l); }
-  function jkKind() { return jkData.kinds.filter(function (k) { return k.name === jkForm.kind; })[0] || jkData.kinds[0]; }
-  function jkTotal() { var q = Number(jkForm.qty) || 0; return jkForm.total !== '' ? Number(jkForm.total) : (Number(jkForm.price) || 0) * q; }
+  function jkPrice() { jkForm.lines.forEach(function (l) { var v = jkData.last[jkForm.buyer + '|' + l.kind]; if (!l.touched) l.price = v ? String(v) : ''; }); }
+  function jkLineTotal(l) { var q = Number(l.qty) || 0; return l.total !== '' ? Number(l.total) || 0 : (Number(l.price) || 0) * q; }
+  function jkUsed() { return jkForm.lines.filter(function (l) { return Number(l.qty) > 0; }); }
   function jkSumText() {
-    var q = Number(jkForm.qty) || 0, k = jkKind();
-    return q ? k.name + ' × ' + q + '＝' + (k.per * q) + '本　合計 ' + (jkTotal() || 0).toLocaleString() + '円（税込）' : '数量を入れてください';
+    var u = jkUsed();
+    if (!u.length) return '売る分の数量を入れてください';
+    var n = u.reduce(function (a, l) { return a + l.per * Number(l.qty); }, 0), t = u.reduce(function (a, l) { return a + jkLineTotal(l); }, 0);
+    return u.map(function (l) { return l.kind + '×' + Number(l.qty); }).join('＋') + '＝' + n + '本　合計 ' + t.toLocaleString() + '円（税込）';
   }
   function renderJunk() {
-    var d = jkData, f = jkForm, unit = jkKind().per > 1 ? '台' : '本';
+    var d = jkData, f = jkForm;
     var html = '<div class="tiles"><div class="tile"><div class="v">' + d.junk + '<small>本</small></div><div class="k">今のジャンク</div></div>' +
       '<div class="tile"><div class="v">' + yen(d.month).replace('万円', '<small>万円</small>') + '</div><div class="k">今月の売却</div></div>' +
       '<div class="tile"><div class="v">' + yen(d.year).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fy + '年度の売却</div></div></div>';
@@ -845,18 +853,26 @@
       '<div class="lbl2">日付</div><input class="f" type="date" id="jkDate" value="' + esc(f.date) + '">' +
       '<div class="lbl2">売り先</div><div class="seg wrap">' + d.buyers.map(function (b) { return '<button data-jkbuyer="' + esc(b) + '"' + (f.buyer === b ? ' class="on"' : '') + '>' + esc(b) + '</button>'; }).join('') + '</div>' +
       '<input class="f" id="jkBuyerNew" placeholder="ほかの売り先（ここに書けばその名前で入ります）" value="' + (d.buyers.indexOf(f.buyer) < 0 ? esc(f.buyer) : '') + '">' +
-      '<div class="lbl2">売り方</div><div class="seg wrap">' + d.kinds.map(function (k) { return '<button data-jkkind="' + esc(k.name) + '"' + (f.kind === k.name ? ' class="on"' : '') + '>' + esc(k.name) + '</button>'; }).join('') + '</div>' +
-      '<div style="display:flex;gap:6px"><div style="flex:1"><div class="lbl2">数量（' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkQty" value="' + esc(f.qty) + '"></div>' +
-      '<div style="flex:1"><div class="lbl2">単価（税込・1' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkPrice" value="' + esc(f.price) + '"></div></div>' +
-      '<div class="lbl2">合計（税込。単価×数量とちがうときだけ）</div><input class="f" type="number" inputmode="numeric" id="jkTotal" value="' + esc(f.total) + '" placeholder="自動">' +
+      '<div class="lbl2">売り方（売る分だけ数量を入れる。いくつでも一緒に入れられます）</div>' +
+      f.lines.map(function (l, i) {
+        var unit = l.per > 1 ? '台' : '本';
+        return '<div class="panel" style="padding:8px 10px;margin:6px 0"><div style="font-weight:700">' + esc(l.kind) + '</div>' +
+          '<div style="display:flex;gap:6px">' +
+          '<div style="flex:1"><div class="lbl2" style="margin-top:4px">数量（' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkQ' + i + '" value="' + esc(l.qty) + '" placeholder="0"></div>' +
+          '<div style="flex:1"><div class="lbl2" style="margin-top:4px">単価（税込・1' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkP' + i + '" value="' + esc(l.price) + '"></div>' +
+          '<div style="flex:1"><div class="lbl2" style="margin-top:4px">金額（ちがうときだけ）</div><input class="f" type="number" inputmode="numeric" id="jkT' + i + '" value="' + esc(l.total) + '" placeholder="自動"></div>' +
+          '</div></div>';
+      }).join('') +
       '<div class="lbl2">受け取り方</div><div class="seg">' + ['現金', '振込', 'その他'].map(function (x) { return '<button data-jkpay="' + x + '"' + (f.pay === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
-      (f.pay === '現金' && d.koguchi ? '<div class="note">現金なら、小口現金管理表に入金で書きます</div>' : '') +
+      (f.pay === '現金' && d.koguchi ? '<div class="note">現金なら、小口現金管理表に入金で書きます（合計で1行）</div>' : '') +
       '<input class="f" id="jkMemo" placeholder="メモ（なくても可）" value="' + esc(f.memo) + '">' +
       '<div class="panel" id="jkSum">' + esc(jkSumText()) + '</div><button class="btn" data-jksave="1">売却を入れる</button>';
     html += '<div class="h2">最近の売却</div>' + (d.list.length ? d.list.map(function (x) {
       var off = x.state === '取消';
+      var ls = x.lines || [{ kind: x.kind, qty: x.qty, n: x.n, total: x.total }];
       return '<div class="card"' + (off ? ' style="opacity:.55"' : '') + '><div class="row1"><span class="no">' + esc(x.buyer) + '</span><span class="date">' + esc(x.date) + (off ? '（取消）' : '') + '</span></div>' +
-        '<div class="meta">' + esc(x.kind + ' × ' + x.qty + '（' + x.n + '本）　' + x.total.toLocaleString() + '円・' + x.pay + '　' + x.by) + (x.memo ? '<br>' + esc(x.memo) : '') + '</div>' +
+        '<div class="meta">' + ls.map(function (l) { return esc(l.kind + ' × ' + l.qty + '（' + l.n + '本）' + l.total.toLocaleString() + '円'); }).join('<br>') + '</div>' +
+        '<div class="meta"><b>合計 ' + x.n + '本　' + x.total.toLocaleString() + '円</b>・' + esc(x.pay + '　' + x.by) + (x.memo ? '<br>' + esc(x.memo) : '') + '</div>' +
         (off ? '' : '<button type="button" class="mini" data-jkcancel="' + esc(x.id) + '" style="margin-top:6px">取り消す</button>') + '</div>';
     }).join('') : '<div class="empty">まだありません</div>');
     html += '<div class="note">売り先は「設定」シートの「ジャンクの売り先」でも足せます。売上は集計の「全部の売上」に入ります</div>';
@@ -864,27 +880,29 @@
   }
   function jkRead() {
     if (!$('jkDate')) return;
-    jkForm.date = $('jkDate').value; jkForm.qty = $('jkQty').value; jkForm.total = $('jkTotal').value; jkForm.memo = $('jkMemo').value;
-    if ($('jkPrice').value !== jkForm.price) { jkForm.price = $('jkPrice').value; jkForm.priceTouched = true; }
+    jkForm.date = $('jkDate').value; jkForm.memo = $('jkMemo').value;
+    jkForm.lines.forEach(function (l, i) {
+      l.qty = $('jkQ' + i).value; l.total = $('jkT' + i).value;
+      if ($('jkP' + i).value !== l.price) { l.price = $('jkP' + i).value; l.touched = true; }
+    });
     var nb = $('jkBuyerNew').value.trim(); if (nb) jkForm.buyer = nb;
   }
   document.addEventListener('input', function (e) { if (location.hash !== '#/inv/junk' || !jkForm || !e.target.id || e.target.id.indexOf('jk') !== 0) return; jkRead(); var el = $('jkSum'); if (el) el.textContent = jkSumText(); });
   document.addEventListener('click', function (e) {
     if (location.hash !== '#/inv/junk' || !jkData) return;
     var t;
-    if ((t = e.target.closest('[data-jkbuyer]'))) { jkRead(); jkForm.buyer = t.getAttribute('data-jkbuyer'); jkForm.priceTouched = false; jkForm.price = ''; jkPrice(); renderJunk(); $('jkBuyerNew').value = ''; return; }
-    if ((t = e.target.closest('[data-jkkind]'))) { jkRead(); jkForm.kind = t.getAttribute('data-jkkind'); jkForm.priceTouched = false; jkForm.price = ''; jkPrice(); renderJunk(); return; }
+    if ((t = e.target.closest('[data-jkbuyer]'))) { jkRead(); jkForm.buyer = t.getAttribute('data-jkbuyer'); jkForm.lines.forEach(function (l) { l.touched = false; }); jkPrice(); renderJunk(); $('jkBuyerNew').value = ''; return; }
     if ((t = e.target.closest('[data-jkpay]'))) { jkRead(); jkForm.pay = t.getAttribute('data-jkpay'); renderJunk(); return; }
     if (e.target.closest('[data-jksave]')) {
       jkRead();
-      var f = jkForm;
+      var f = jkForm, u = jkUsed();
       if (!f.buyer) { toast('売り先を選んでください'); return; }
-      if (!(Number(f.qty) > 0)) { toast('数量を入れてください'); return; }
+      if (!u.length) { toast('売る分の数量を入れてください'); return; }
       confirmSheet(f.buyer + 'さんへ　' + jkSumText() + '　' + f.pay + '\nこの内容で入れますか？（ジャンクの本数から引きます）', '入れる').then(function (ok) {
         if (!ok) return;
         loading(true);
-        call('invJunkSave', { date: f.date, buyer: f.buyer, kind: f.kind, qty: f.qty, price: f.price, total: f.total, pay: f.pay, memo: f.memo }).then(function (d) {
-          jkData = d; invData = null; stData = null; jkForm = { date: f.date, buyer: f.buyer, kind: f.kind, qty: '', price: '', total: '', pay: f.pay, memo: '' }; jkPrice(); renderJunk();
+        call('invJunkSave', { date: f.date, buyer: f.buyer, pay: f.pay, memo: f.memo, lines: u.map(function (l) { return { kind: l.kind, qty: l.qty, price: l.price, total: l.total }; }) }).then(function (d) {
+          jkData = d; invData = null; stData = null; jkForm = jkNewForm(d, f); jkPrice(); renderJunk();
           toast(d.note + (d.warns && d.warns.length ? '／' + d.warns.join('／') : ''));
         }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
