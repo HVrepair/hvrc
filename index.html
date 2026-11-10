@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10h';
+  var SCREEN_VERSION = '2026-11-10i';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1564,6 +1564,16 @@
     html += '<div><span class="cnt">' + d.have + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + '（' + esc(d.cat === '半年' ? '半年用' : '使用可能') + 'の棚から）</span></div>';
     if (d.from.length) html += '<div class="meta">出した棚：' + d.from.map(function (f) { return esc(f.label) + ' ' + f.n + '本'; }).join('・') + '</div>';
     if (d.units && d.units.length) html += '<div class="meta">使ったユニット：' + d.units.map(function (u) { return esc(u.unit || 'わからない') + (u.rangeLabel ? '（' + esc(u.rangeLabel) + '）' : '') + ' ' + u.n + '本'; }).join('・') + '</div>';
+    // 作ったまま止まっているバッテリー（キャンセル・日付未定）→ この修理に回せる
+    if (!d.isNew && d.have < (d.need || 1) && d.stuck && d.stuck.length) {
+      var st = d.stuck.slice().sort(function (a, b) { return (a.model === d.model ? 0 : 1) - (b.model === d.model ? 0 : 1); });
+      html += '<div class="advice mid" style="margin-top:8px"><b>作ったまま止まっているバッテリーがあります</b>（キャンセル・日付未定）。この修理に回せます' +
+        st.map(function (x) {
+          return '<div class="crow"><b>' + esc(x.no) + '</b> ' + esc(x.name) + '　<span class="chip state">' + esc(x.why) + '</span><div class="meta">' + esc([x.model + (x.model === d.model ? '（同じ車種）' : ''), x.grade, x.n + '本', x.content, x.test ? '放電 ' + x.test : ''].filter(Boolean).join('・')) + '</div>' +
+            '<button type="button" class="btn sub" data-ctrans="' + esc(x.key) + '" data-ctno="' + esc(x.no) + '" data-ctn="' + x.n + '" style="margin:6px 0 0">' + esc(x.no) + ' の ' + x.n + '本をこの修理に回す</button></div>';
+        }).join('') + '</div>';
+    }
+    if (d.stuckSelf) html += '<div class="advice mid" style="margin-top:8px">この受注は' + esc(d.stuckSelf) + 'です。作ったバッテリーは、新しい修理の充電開始の画面で「この修理に回す」を押すと回せます（棚に戻すときは下の「取り消す」）</div>';
     if (d.need && d.have >= d.need) {
       html += '<div class="big-ok">必要本数そろっています</div>';
     } else {
@@ -1735,6 +1745,19 @@
     if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: last.grade || '', rank: last.rank || '', unit: '', n: '' }); renderOrder(false); return; }
     if ((t = e.target.closest('[data-cdel]'))) { cRead(); cRows.splice(Number(t.getAttribute('data-cdel')), 1); renderOrder(false); return; }
     if ((t = e.target.closest('[data-csave]'))) { cntSave(''); return; }
+    if ((t = e.target.closest('[data-ctrans]'))) {
+      var fk = t.getAttribute('data-ctrans'), fno = t.getAttribute('data-ctno'), fn = t.getAttribute('data-ctn'), tk = current.key;
+      confirmSheet(fno + ' のために作ったバッテリー（' + fn + '本）を、' + current.no + ' に回します。\n同じユニット・数値のまま付け替えて、' + fno + ' の「充電開始」のチェックは外れます', '回す').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('cntTransfer', { from: fk, to: tk }).then(function (d) {
+          cntData = d; cRowsInit(); invData = null; listCache = null; traceData = null;
+          if (d.notes && d.notes.length) toast(d.notes.join('／'));
+          return call('order', { key: tk }).then(function (o) { if (current && current.key === tk) { current = o; renderOrder(false); } });
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
     if ((t = e.target.closest('[data-cundo]'))) {
       var ck = current.key;
       confirmSheet('数で入れた充電開始の本数を、棚に戻しますか？（チェックはそのままです。外すときはチェックも取り消してください）', '棚に戻す').then(function (ok) {
