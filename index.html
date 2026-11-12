@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-12b';
+  var SCREEN_VERSION = '2026-11-12c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -621,6 +621,19 @@
   // ---- 休み（公休・有休・半休） ----
   function fmtDay(n) { n = Number(n) || 0; return (Math.round(n * 10) / 10).toString(); }
   var lvData = null, lvYm = '', lvWho = '', lvForm = { date: '', type: '公休', half: '全日', memo: '', staffId: '' };
+  // 年5日の有休の取得義務（10日以上付与した人：付与日から1年以内に5日）
+  function dutyHtml(LG, name, full) {
+    if (!LG) return '';
+    var D = LG.duty, h = '';
+    if (D) {
+      var cls = D.level === 'high' ? 'advice high' : D.level === 'mid' ? 'advice mid' : 'advice';
+      if (D.need > 0) h += '<div class="' + cls + '"><b>年5日の有休：あと ' + fmtDay(D.need) + '日</b>（' + esc(D.from) + '〜<b>' + esc(D.to) + '</b> の間に5日。今 ' + fmtDay(D.taken) + '日' + (D.taken > D.done ? '（予定 ' + fmtDay(D.taken - D.done) + '日を含む）' : '') + '・期限まで ' + D.daysLeft + '日）' +
+        (full ? '<div class="meta">法律（労基法39条7項）で、10日以上付与した人は付与日から1年以内に5日取らせる必要があります。半休は0.5日。' + (D.pre ? 'この1年のうちアプリを使う前に取った分は入っていません。取った日がわかれば、上の「休みを入れる」でその日付の有休を入れると数えます（入れたら「今日の時点の残り」も入れ直す）' : '') + '</div>' : '') + '</div>';
+      else if (full) h += '<div class="advice">年5日の有休：' + esc(D.from) + '〜' + esc(D.to) + ' の5日は取れています（' + fmtDay(D.taken) + '日' + (D.taken > D.done ? '・予定を含む' : '') + '）</div>';
+    }
+    if (full && LG.dutyPast && LG.dutyPast.length) h += LG.dutyPast.map(function (p) { return '<div class="advice high">' + esc(p.from) + '〜' + esc(p.to) + ' の1年は ' + fmtDay(p.taken) + '日 で、5日に届いていません' + (p.pre ? '（アプリを使う前の分は入っていません）' : '') + '</div>'; }).join('');
+    return h;
+  }
   function openLeave(date) {
     setNav('#/me', '#/me');
     $('title').textContent = '休み';
@@ -641,6 +654,7 @@
       '<div class="tile"><div class="v">' + fmtDay(M.total) + '<small>日</small></div><div class="k">この月の休み 合計</div></div></div>';
     html += '<div class="note">半休は0.5日（半休2回で1日分）。公休は、その月の土日の数だけ休めます</div>';
     var LG = M.ledger;
+    html += dutyHtml(LG, M.name, true);
     if (LG && LG.soon) html += '<div class="advice mid">有休 ' + fmtDay(LG.soon.n) + '日 が ' + esc(LG.soon.date) + ' で期限切れになります（古い付与から先に使われます）</div>';
     // 入れる
     html += '<div class="h2">' + esc(M.name) + 'さんの休みを入れる</div>' +
@@ -664,9 +678,11 @@
     } else if (LG && LG.next) html += '<div class="note">次の有休の付与：' + esc(LG.next.date) + '（' + esc(LG.next.what) + '）' + LG.next.days + '日</div>';
     // みんな（店長・管理者）
     if (d.boss && d.all) {
+      var lack = d.all.filter(function (a) { return a.duty && a.duty.need > 0 && a.duty.level !== 'low'; }).sort(function (a, b) { return a.duty.daysLeft - b.duty.daysLeft; });
+      if (lack.length) html += '<div class="h2">年5日の有休がまだの人</div>' + lack.map(function (a) { return '<div class="advice ' + (a.duty.level === 'high' ? 'high' : 'mid') + '"><a href="#" data-lvsee="' + esc(a.staffId) + '"><b>' + esc(a.name) + '</b></a>：あと ' + fmtDay(a.duty.need) + '日（' + esc(a.duty.to) + ' まで・残り ' + a.duty.daysLeft + '日）</div>'; }).join('');
       html += '<div class="h2">みんなの休み（' + d.m + '月）</div><table class="t"><tr><th>名前</th><th style="text-align:right">公休</th><th style="text-align:right">残り</th><th style="text-align:right">有休</th><th style="text-align:right">合計</th><th style="text-align:right">有休残</th></tr>' +
         d.all.map(function (a) {
-          return '<tr><td><a href="#" data-lvsee="' + esc(a.staffId) + '">' + esc(a.name) + '</a></td><td class="n">' + fmtDay(a.kokyu) + '</td><td class="n" style="' + (a.left < 0 ? 'color:#B42318;font-weight:700' : '') + '">' + fmtDay(a.left) + '</td><td class="n">' + fmtDay(a.yukyu) + '</td><td class="n">' + fmtDay(a.total) + '</td><td class="n">' + fmtDay(a.yLeft) + (a.soon ? '<div class="meta" style="color:#B54708">' + fmtDay(a.soon.n) + '日 ' + esc(a.soon.date) + '期限</div>' : '') + (a.hire ? '' : '<div class="meta">入社日なし</div>') + '</td></tr>';
+          return '<tr><td><a href="#" data-lvsee="' + esc(a.staffId) + '">' + esc(a.name) + '</a></td><td class="n">' + fmtDay(a.kokyu) + '</td><td class="n" style="' + (a.left < 0 ? 'color:#B42318;font-weight:700' : '') + '">' + fmtDay(a.left) + '</td><td class="n">' + fmtDay(a.yukyu) + '</td><td class="n">' + fmtDay(a.total) + '</td><td class="n">' + fmtDay(a.yLeft) + (a.soon ? '<div class="meta" style="color:#B54708">' + fmtDay(a.soon.n) + '日 ' + esc(a.soon.date) + '期限</div>' : '') + (a.duty && a.duty.need > 0 ? '<div class="meta" style="color:' + (a.duty.level === 'high' ? '#B42318' : '#B54708') + ';font-weight:700">5日まであと' + fmtDay(a.duty.need) + '日（' + esc(a.duty.to.slice(5)) + 'まで）</div>' : '') + (a.dutyPast && a.dutyPast.length ? '<div class="meta" style="color:#B42318">前の1年 5日未達</div>' : '') + (a.hire ? '' : '<div class="meta">入社日なし</div>') + '</td></tr>';
         }).join('') + '</table>';
       var SU = M.setup || {};
       html += '<div class="h2">入社日・有休の自動付与（' + esc(M.name) + 'さん）</div>' +
@@ -1612,7 +1628,8 @@
       var L = d.leave;
       html += '<a class="card tap" href="#/leave" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + L.m + '月の休み</span><span class="date">休みを入れる・見る ›</span></div>' +
         '<div class="meta" style="font-size:15px;color:var(--text)">公休 <b>' + fmtDay(L.kokyu) + '</b> / ' + L.allowance + '日（残り ' + fmtDay(L.left) + '日）　有休 <b>' + fmtDay(L.yukyu) + '</b>日（有休の残り ' + fmtDay(L.yLeft) + '日）</div>' +
-        '<div class="pbar' + (L.left < 0 ? ' over' : '') + '" style="margin-top:6px"><div style="width:' + Math.min(100, L.allowance ? L.kokyu / L.allowance * 100 : 0) + '%"></div></div></a>';
+        '<div class="pbar' + (L.left < 0 ? ' over' : '') + '" style="margin-top:6px"><div style="width:' + Math.min(100, L.allowance ? L.kokyu / L.allowance * 100 : 0) + '%"></div></div>' +
+        (L.ledger && L.ledger.duty && L.ledger.duty.need > 0 ? '<div class="meta" style="margin-top:6px;color:' + (L.ledger.duty.level === 'high' ? '#B42318' : '#B54708') + ';font-weight:700">年5日の有休：' + esc(L.ledger.duty.to) + ' までに あと ' + fmtDay(L.ledger.duty.need) + '日</div>' : '') + '</a>';
     }
     if (d.role === '店長' || d.role === '管理者') html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a><a href="#/leave" class="alt">みんなの休み</a></div>';
     html += '<div class="tabs">' + [['thisMonth', '今月'], ['lastMonth', '先月'], ['fiscal', '今年度']].map(function (t) {
