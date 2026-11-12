@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-10m';
+  var SCREEN_VERSION = '2026-11-11a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -726,14 +726,14 @@
   function pct(v) { return v === null || v === undefined ? '―' : v + '%'; }
   function renderProfit() {
     var d = pfData, s = d.settings, L = d.last3, Q = d.quality;
-    var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。金額は税別。アプリで充電開始を記録した修理だけを計算しています（アプリを使う前の修理は入りません）</div>';
+    var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。金額は税別。どのユニットから何本：アプリの充電開始の記録 → なければ受注シートの「バッテリー内容」（ユニットの数で均等に分ける）</div>';
     if (s.missing.length) html += '<div class="advice mid">「設定」シートに、まだ値が入っていない項目があります：' + esc(s.missing.join('・')) + '。入れると粗利がより正確になります（入れたら「更新」）</div>';
     html += '<div class="tiles">' +
       '<div class="tile"><div class="v">' + (L.per === null ? '―' : yen(L.per).replace('万円', '<small>万円</small>')) + '</div><div class="k">1件あたりの粗利<br>（直近3か月）</div></div>' +
       '<div class="tile"><div class="v">' + pct(L.rate) + '</div><div class="k">粗利率（直近3か月）</div></div>' +
-      '<div class="tile"><div class="v">' + L.cover + '<small>%</small></div><div class="k">計算できた修理<br>' + L.n + '件／' + L.all + '件</div></div>' +
+      '<div class="tile"><div class="v">' + L.cover + '<small>%</small></div><div class="k">計算できた修理（直近3か月）<br>' + L.n + '件／' + L.all + '件</div></div>' +
       '<div class="tile"><div class="v">' + yen(L.reCost).replace('万円', '<small>万円</small>') + '</div><div class="k">再修理の費用（直近3か月）</div></div></div>';
-    if (!d.months.length) html += '<div class="empty">まだ計算できる修理がありません。アプリで充電開始（どのユニットから何本）を入れた修理から計算します</div>';
+    if (!d.months.length) html += '<div class="empty">まだ計算できる修理がありません。アプリの充電開始か、受注シートの「バッテリー内容」（G2-2[HVB616(3/28),…]）がある修理から計算します</div>';
     else {
       var byYm = {}; d.months.forEach(function (m) { byYm[m.ym] = m; });
       var items = [], p0 = d.thisYm.split('-').map(Number);
@@ -745,14 +745,16 @@
       if (items.length) html += '<div class="h2">1件あたりの粗利（月ごと）</div>' + stChart('粗利', items, '万円');
       html += '<div class="h2">月ごとの粗利</div><table class="t"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">率</th><th style="text-align:right">再修理</th></tr>' +
         d.months.slice().reverse().slice(0, 12).map(function (m) {
-          return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small></td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.gp) + '</td><td class="n">' + pct(m.rate) + '</td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
+          return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small>' + (m.past ? '<br><small>シート' + m.past + '</small>' : '') + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.gp) + '</td><td class="n">' + pct(m.rate) + '</td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
         }).join('') + '</table>';
       html += '<div class="h2">原価の内訳（月ごと）</div><table class="t"><tr><th>月</th><th style="text-align:right">モジュール</th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
         d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.mod) + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
       html += '<div class="note">件数は「計算できた件数／その月の修理の件数」。再修理は0円の修理で、費用は元の修理の保証の費用として別に出しています。' +
-        'モジュール：仕入れたユニットは「仕入金額÷検査で使えた本数」、修理の戻りは0円、新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。ユニットがわからない分は平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
+        'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。修理の戻りは0円（番号の頭 ' + esc(s.ret) + '）、新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
+        '「シート」は受注シートのバッテリー内容から計算した件数（' + d.est.past + '件）。' +
         'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' をその月の修理件数で割る。' +
-        '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>';
+        '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>' +
+        (d.est.noPrice ? '<div class="advice">値段がわからなかった購入ユニット ' + d.est.noPrice + '台（使った本数の多い順）：' + esc(d.est.noPriceTop.join('、')) + (d.est.noPrice > 15 ? ' など' : '') + '。古い月の棚卸表を「過去のユニットを送る」で送るか、「ユニット」シートの仕入金額に入れると計算に入ります</div>' : '');
       var tbl = function (title, list) {
         if (!list || !list.length) return '';
         return '<div class="h2">' + title + '</div><table class="t"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">率</th><th style="text-align:right">保証の<br>費用</th></tr>' +
@@ -762,21 +764,25 @@
       html += tbl('グレード', d.by.grade) + tbl('来店・出張・単体など', d.by.kind) + tbl('車種（上位12）', d.by.model);
       if (d.low.length) html += '<div class="h2">粗利が少なかった修理（直近6か月・下から10件）</div>' + d.low.map(function (x) {
         return '<a class="card" href="#/order/' + encodeURIComponent(x.key) + '" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + esc(x.no) + '</span><span class="date">' + esc(x.date) + '</span></div>' +
-          '<div class="meta">' + esc(x.model + '・' + x.grade + '・' + x.kind) + '</div>' +
+          '<div class="meta">' + esc(x.model + '・' + x.grade + '・' + x.kind) + (x.past ? '（受注シートのバッテリー内容から）' : '') + '</div>' +
           '<div class="meta">売上 ' + yen(x.sales) + '　モジュール ' + yen(x.mod) + '（' + x.n + '本' + (x.est ? '・うち見込み ' + x.est + '本' : '') + '）　バスバー ' + yen(x.bus) + (x.ship ? '　送料 ' + yen(x.ship) : '') + (x.labor ? '　人件費 ' + yen(x.labor) : '') + '</div>' +
           '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b></div></a>';
       }).join('');
     }
     // ---- 品質 ----
     html += '<div class="h2" style="margin-top:22px">品質のふり返り（再修理）</div>';
-    html += '<div class="note">元の修理で使ったモジュールごとに、そのモジュールを使った修理のうち何件が再修理になったか。計算できた修理 ' + Q.traced + '件。再修理 ' + Q.allRe + '件のうち、元の修理のモジュールがわかるのは ' + Q.tracedRe + '件です。' +
+    html += '<div class="note">元の修理で使ったモジュールごとに、そのモジュールを使った修理のうち何件が再修理になったか。計算できた修理 ' + Q.traced + '件（うち受注シートのバッテリー内容から ' + Q.tracedPast + '件）。再修理 ' + Q.allRe + '件のうち、元の修理のモジュールがわかるのは ' + Q.tracedRe + '件です。受注シートの「➡」のあとは再修理として数えています（保証の費用はモジュール代だけ）。' +
       '修理してからの日数が短いうちは、再修理の率は低く出ます（「経過」は修理してからの平均日数）。' + Q.few + '件より少ないものは、うすく表示しています</div>';
+    var qrow = function (x) {
+      var rs = x.reasons.filter(function (r) { return r.indexOf('（受注シートの記録）') !== 0; });
+          return '<tr' + (x.few ? ' style="opacity:.55"' : '') + '><td>' + esc(x.k) + (rs.length ? '<br><small>' + esc(rs.join('・')) + '</small>' : '') + '</td><td class="n">' + x.orders + '<br><small>' + x.mods + '本</small></td><td class="n">' + x.re + '</td><td class="n"' + (!x.few && x.rate >= 10 ? ' style="color:#B42318"' : '') + '>' + x.rate + '%</td><td class="n">' + (x.reCost ? yen(x.reCost) : '―') + '</td><td class="n">' + x.age + '日</td></tr>';
+    };
     var qt = function (title, list) {
       if (!list || !list.length) return '';
-      return '<div class="h2">' + title + '</div><table class="t"><tr><th></th><th style="text-align:right">使った<br>修理</th><th style="text-align:right">再修理</th><th style="text-align:right">率</th><th style="text-align:right">保証の<br>費用</th><th style="text-align:right">経過</th></tr>' +
-        list.map(function (x) {
-          return '<tr' + (x.few ? ' style="opacity:.55"' : '') + '><td>' + esc(x.k) + (x.reasons.length ? '<br><small>' + esc(x.reasons.join('・')) + '</small>' : '') + '</td><td class="n">' + x.orders + '<br><small>' + x.mods + '本</small></td><td class="n">' + x.re + '</td><td class="n"' + (!x.few && x.rate >= 10 ? ' style="color:#B42318"' : '') + '>' + x.rate + '%</td><td class="n">' + (x.reCost ? yen(x.reCost) : '―') + '</td><td class="n">' + x.age + '日</td></tr>';
-        }).join('') + '</table>';
+      var head = '<tr><th></th><th style="text-align:right">使った<br>修理</th><th style="text-align:right">再修理</th><th style="text-align:right">率</th><th style="text-align:right">保証の<br>費用</th><th style="text-align:right">経過</th></tr>';
+      var many = list.filter(function (x) { return !x.few; }), few = list.filter(function (x) { return x.few; });
+      return '<div class="h2">' + title + '</div>' + (many.length ? '<table class="t">' + head + many.map(qrow).join('') + '</table>' : '') +
+        (few.length ? '<details style="margin-top:6px"><summary class="note">' + Q.few + '件より少ないもの ' + few.length + '行（まだ判断できない）を見る</summary><table class="t">' + head + few.map(qrow).join('') + '</table></details>' : '');
     };
     html += qt('仕入先', Q.sup) + qt('検査の数値', Q.range) + qt('種類', Q.type) + qt('棚・ランク', Q.rank) + qt('購入／修理の戻り', Q.src);
     if (Q.re.length) html += '<div class="h2">再修理になった修理（新しい順）</div>' + Q.re.map(function (x) {
