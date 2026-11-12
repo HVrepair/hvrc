@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-11a';
+  var SCREEN_VERSION = '2026-11-11b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1207,6 +1207,21 @@
     if (!current || location.hash.indexOf('#/order/') !== 0) return;
     if (e.target.closest('[data-traceopen]')) { traceOpen = !traceOpen; renderOrder(false); }
   });
+  // 受注の画面の粗利（店長・管理者だけ）：充電開始のときの予定と、修理日が過ぎたあとの実績
+  function orderPfHtml(d) {
+    var p = d.pf; if (!p || p.none) return '';
+    var y = function (v) { return (Math.round(v) || 0).toLocaleString() + '円'; };
+    var rate = function (x) { return x.rate === null || x.rate === undefined ? '' : '（' + x.rate + '%）'; };
+    var a = p.actual || p.now, pl = p.plan;
+    var head = (pl ? '予定 ' + y(pl.gp) + rate(pl) : '') + (pl && a ? ' → ' : '') + (a ? (p.actual ? '実績 ' : '今の見込み ') + y(a.gp) + rate(a) : '');
+    var body = '';
+    if (pl) body += '<div class="meta"><b>予定</b>（充電開始のとき・' + esc(pl.at) + '）：モジュール ' + y(pl.mod) + '（' + pl.n + '本）・バスバー ' + y(pl.bus) + (pl.ship ? '・送料 ' + y(pl.ship) : '') + (pl.labor ? '・人件費 ' + y(pl.labor) : '') + '<br>' + esc(pl.text) + '</div>';
+    if (a) body += '<div class="meta" style="margin-top:6px"><b>' + (p.actual ? '実績' : '今の見込み') + '</b>：売上 ' + y(a.sales) + '（税別）− モジュール ' + y(a.mod) + '（' + a.n + '本）− バスバー ' + y(a.bus) + '（' + a.busN + '枚' + (a.busEst ? '・平均で見込み' : '') + '）' +
+      (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + ' ＝ ' + y(a.gp) + '<br>' +
+      esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : ''); }).join('／')) +
+      (p.actual ? '<br>「修理の粗利」シートに記録' + (p.recAt ? '（' + esc(p.recAt) + '）' : '') + '。バスバーの枚数・人件費（その月の件数）が変わると直ります' : '') + '</div>';
+    return '<details class="panel" style="margin:0 0 10px"><summary><b>粗利</b>　' + esc(head) + '</summary>' + body + '</details>';
+  }
   function renderOrder(scroll) {
     var d = current;
     $('title').textContent = d.no + '　' + d.name;
@@ -1217,7 +1232,7 @@
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
       '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
-      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + traceHtml();
+      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + traceHtml() + orderPfHtml(d);
     if (d.hidden) html += '<div class="warnbox">この受注はアプリの一覧に出していません（' + esc(d.hidden) + '）<button class="btn sub" data-jobshow="1" style="margin-top:6px">アプリに出す</button></div>';
     var stage = '', section = '', firstOpen = '';
     var stages = {};
@@ -1764,6 +1779,7 @@
     if (d.stuckSelf) html += '<div class="advice mid" style="margin-top:8px">この受注は' + esc(d.stuckSelf) + 'です。作ったバッテリーは、新しい修理の充電開始の画面で「この修理に回す」を押すと回せます（棚に戻すときは下の「取り消す」）</div>';
     if (d.need && d.have >= d.need) {
       html += '<div class="big-ok">必要本数そろっています</div>';
+      if (d.pf) html += '<div class="advice" id="cPf">' + cPfInner() + '</div>';
     } else {
       html += '<div class="lbl2">棚から出した本数（棚が分かれたら「＋ 棚を足す」）</div>';
       cRows.forEach(function (r, i) {
@@ -1775,10 +1791,11 @@
           (cRows.length > 1 ? '<button class="btn sub" data-cdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
           (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' +
             '<select class="f" data-crow="' + i + '" data-ck="lot" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
-            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本</option>'; }).join('') +
+            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本' + (d.pf && l.unit ? '　1本 ' + (d.pf.per[l.unit] === null || d.pf.per[l.unit] === undefined ? '値段不明' : yenF(d.pf.per[l.unit])) + (d.pf.sup[l.unit] ? '（' + esc(d.pf.sup[l.unit]) + '）' : '') : '') + '</option>'; }).join('') +
             '</select>' : '') + '</div>';
       });
       html += '<button class="btn sub" data-cadd="1">＋ 行を足す（棚・ユニットが分かれたら）</button>';
+      if (d.pf) html += '<div class="advice" id="cPf">' + cPfInner() + '</div>';
       html += '<div class="lbl2">充電レーン（なくても可）' + (chosenLane ? '：<b>' + esc(chosenLane) + '</b>' : '') + '</div>';
       html += '<div class="lanes">' + LANES.map(function (l, i) { return '<button data-lane="' + l + '"' + (chosenLane === l ? ' class="on"' : '') + '>' + (i + 1) + '</button>'; }).join('') + '</div>';
       html += '<button class="btn" data-csave="1">この本数で充電開始</button>';
@@ -1786,6 +1803,31 @@
     if (d.countEntered) html += '<button class="btn sub" data-cundo="1">数で入れた分を取り消す（棚に戻す）</button>';
     return html + '</div>';
   }
+  // 粗利の見込み（店長・管理者だけ）：もう出したモジュール＋今入れている行
+  function yenF(v) { return (Math.round(v) || 0).toLocaleString() + '円'; }
+  function cPfInner() {
+    var d = cntData, p = d && d.pf; if (!p) return '';
+    var e = p.now, add = [], addMod = 0, addN = 0, addEst = 0;
+    (d.need && d.have >= d.need ? [] : cRows).forEach(function (r) {
+      var n = Math.floor(Number(r.n) || 0); if (n <= 0) return;
+      var a = String(r.lot || '').split('|'), u = a[0] || '', known = u && p.per[u] !== null && p.per[u] !== undefined;
+      var per = known ? p.per[u] : p.avgMod;
+      addMod += per * n; addN += n; if (!known) addEst += n;
+      add.push((u || 'ユニット未選択') + (u && p.sup[u] ? '（' + p.sup[u] + (a[1] ? '・' + a[1].replace('-', '〜') : '') + '）' : '') + ' ' + n + '本×' + yenF(per) + (known ? '' : '（見込み）'));
+    });
+    var mod = e.mod + addMod, n = e.n + addN, cost = mod + e.bus + e.ship + e.labor, gp = e.sales - cost;
+    var used = e.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + yenF(l.per) + (l.est ? '（見込み）' : ''); });
+    return '<b>この修理の粗利（見込み）：' + yenF(gp) + (e.sales ? '（' + Math.round(gp / e.sales * 1000) / 10 + '%）' : '') + '</b>' +
+      '<div class="meta">売上 ' + yenF(e.sales) + '（税別）− モジュール ' + yenF(mod) + '（' + n + '本）− バスバー ' + yenF(e.bus) + '（' + e.busN + '枚' + (e.busEst ? '・平均で見込み' : '') + '）' +
+      (e.ship ? '− 送料 ' + yenF(e.ship) : '') + (e.labor ? '− 人件費 ' + yenF(e.labor) + '（月の人件費÷' + e.laborCnt + '件）' : '') + '</div>' +
+      (used.length ? '<div class="meta">出したモジュール：' + esc(used.join('／')) + '</div>' : '') +
+      (add.length ? '<div class="meta">これから出す：' + esc(add.join('／')) + '</div>' : '') +
+      (e.est + addEst ? '<div class="meta">値段がわからないユニットは平均 ' + yenF(p.avgMod) + '／本で見込み</div>' : '') +
+      (e.missing && e.missing.length ? '<div class="meta">「設定」にまだない値：' + esc(e.missing.join('・')) + '</div>' : '') +
+      '<div class="meta">充電開始を押すと「修理の粗利」シートに予定として記録し、修理日が過ぎたら実績も記録します（店長・管理者だけに表示）</div>';
+  }
+  document.addEventListener('input', function (e) { var t = e.target; if (t.getAttribute && t.getAttribute('data-crow') !== null && $('cPf')) { cRead(); $('cPf').innerHTML = cPfInner(); } });
+  document.addEventListener('change', function (e) { var t = e.target; if (t.getAttribute && t.getAttribute('data-crow') !== null && $('cPf')) { cRead(); $('cPf').innerHTML = cPfInner(); } });
   function cRead() {
     document.querySelectorAll('[data-crow]').forEach(function (el) { var r = cRows[Number(el.getAttribute('data-crow'))]; if (r) r[el.getAttribute('data-ck')] = el.value; });
   }
