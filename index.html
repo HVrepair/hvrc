@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-11b';
+  var SCREEN_VERSION = '2026-11-12b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -640,6 +640,8 @@
       '<div class="tile"><div class="v" style="' + (M.yLeft < 0 ? 'color:#B42318' : '') + '">' + fmtDay(M.yLeft) + '<small>日</small></div><div class="k">有休の残り（付与 ' + fmtDay(M.granted) + '日）</div></div>' +
       '<div class="tile"><div class="v">' + fmtDay(M.total) + '<small>日</small></div><div class="k">この月の休み 合計</div></div></div>';
     html += '<div class="note">半休は0.5日（半休2回で1日分）。公休は、その月の土日の数だけ休めます</div>';
+    var LG = M.ledger;
+    if (LG && LG.soon) html += '<div class="advice mid">有休 ' + fmtDay(LG.soon.n) + '日 が ' + esc(LG.soon.date) + ' で期限切れになります（古い付与から先に使われます）</div>';
     // 入れる
     html += '<div class="h2">' + esc(M.name) + 'さんの休みを入れる</div>' +
       '<input class="f" type="date" id="lvDate" value="' + esc(lvForm.date) + '">' +
@@ -652,13 +654,30 @@
       var dt = new Date(x.date.replace(/-/g, '/'));
       return '<tr><td>' + (dt.getMonth() + 1) + '/' + dt.getDate() + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')</td><td>' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + (x.memo ? '<div class="meta">' + esc(x.memo) + '</div>' : '') + '</td><td class="n">' + fmtDay(x.n) + '日</td><td style="width:64px;white-space:nowrap"><button type="button" class="mini" data-lvdel="' + esc(x.id) + '">取消</button></td></tr>';
     }).join('') + '</table>' : '<div class="empty">この月の休みはまだありません</div>';
+    // 有休の内訳（付与ごと）
+    if (LG && LG.lots && LG.lots.length) {
+      html += '<div class="h2">有休の内訳（' + esc(M.name) + 'さん）</div><table class="t"><tr><th>付与日</th><th style="text-align:right">付与</th><th style="text-align:right">使った</th><th style="text-align:right">残り</th><th>期限</th></tr>' +
+        LG.lots.map(function (l) {
+          return '<tr' + (l.dead ? ' style="opacity:.5"' : '') + '><td>' + esc(l.date) + (l.memo ? '<div class="meta">' + esc(l.memo) + '</div>' : '') + '</td><td class="n">' + fmtDay(l.days) + '</td><td class="n">' + fmtDay(l.used) + '</td><td class="n">' + (l.dead ? (l.left ? '<s>' + fmtDay(l.left) + '</s>' : '0') : fmtDay(l.left)) + '</td><td>' + (l.dead ? '期限切れ' : esc(l.until) + 'まで') + '</td></tr>';
+        }).join('') + '</table>' +
+        '<div class="note">' + (LG.next ? '次の付与：' + esc(LG.next.date) + '（' + esc(LG.next.what) + '）' + LG.next.days + '日。' : '') + (LG.expired ? '期限切れで消えた分 ' + fmtDay(LG.expired) + '日。' : '') + (LG.over ? '<b style="color:#B42318">付与より ' + fmtDay(LG.over) + '日 多く使っています。</b>' : '') + '</div>';
+    } else if (LG && LG.next) html += '<div class="note">次の有休の付与：' + esc(LG.next.date) + '（' + esc(LG.next.what) + '）' + LG.next.days + '日</div>';
     // みんな（店長・管理者）
     if (d.boss && d.all) {
       html += '<div class="h2">みんなの休み（' + d.m + '月）</div><table class="t"><tr><th>名前</th><th style="text-align:right">公休</th><th style="text-align:right">残り</th><th style="text-align:right">有休</th><th style="text-align:right">合計</th><th style="text-align:right">有休残</th></tr>' +
         d.all.map(function (a) {
-          return '<tr><td><a href="#" data-lvsee="' + esc(a.staffId) + '">' + esc(a.name) + '</a></td><td class="n">' + fmtDay(a.kokyu) + '</td><td class="n" style="' + (a.left < 0 ? 'color:#B42318;font-weight:700' : '') + '">' + fmtDay(a.left) + '</td><td class="n">' + fmtDay(a.yukyu) + '</td><td class="n">' + fmtDay(a.total) + '</td><td class="n">' + fmtDay(a.yLeft) + '</td></tr>';
+          return '<tr><td><a href="#" data-lvsee="' + esc(a.staffId) + '">' + esc(a.name) + '</a></td><td class="n">' + fmtDay(a.kokyu) + '</td><td class="n" style="' + (a.left < 0 ? 'color:#B42318;font-weight:700' : '') + '">' + fmtDay(a.left) + '</td><td class="n">' + fmtDay(a.yukyu) + '</td><td class="n">' + fmtDay(a.total) + '</td><td class="n">' + fmtDay(a.yLeft) + (a.soon ? '<div class="meta" style="color:#B54708">' + fmtDay(a.soon.n) + '日 ' + esc(a.soon.date) + '期限</div>' : '') + (a.hire ? '' : '<div class="meta">入社日なし</div>') + '</td></tr>';
         }).join('') + '</table>';
-      html += '<div class="h2">有休の付与（' + esc(M.name) + 'さん）</div><div class="note">付与した日数を入れると「有休の残り」に足されます。まちがえたときはマイナスで入れて直します</div>' +
+      var SU = M.setup || {};
+      html += '<div class="h2">入社日・有休の自動付与（' + esc(M.name) + 'さん）</div>' +
+        '<div class="note">入社日を入れると、法律どおりに自動で付与します（入社6か月で10日、その後1年ごとに11・12・14・16・18・20日。週4日以下は比例付与）。付与から2年で期限切れ、使うのは古い付与から。' +
+        '「今の残り」を入れると、アプリを使う前に使った分を合わせます（わからなければ空のまま）。出勤率8割の条件は見ていません</div>' +
+        '<div class="lbl2">入社日</div><input class="f" type="date" id="lvHire" value="' + esc(SU.hire || '') + '">' +
+        '<div class="lbl2">週の所定労働日数</div><select class="f" id="lvWeek">' + [5, 4, 3, 2, 1].map(function (w) { return '<option value="' + w + '"' + ((SU.week || 5) === w ? ' selected' : '') + '>' + (w === 5 ? '週5日以上（または週30時間以上）' : '週' + w + '日') + '</option>'; }).join('') + '</select>' +
+        '<div class="lbl2">今日の時点の有休の残り（日・わかれば）</div><input class="f" type="number" step="0.5" inputmode="decimal" id="lvRemain" placeholder="例 8.5（空ならそのまま）" value="">' +
+        (SU.at && SU.remain !== null && SU.remain !== undefined && SU.remain !== '' ? '<div class="meta">前に合わせた残り：' + esc(SU.at) + ' の時点で ' + fmtDay(SU.remain) + '日（入社日だけ直すときは空のまま）</div>' : '') +
+        '<button class="btn sub" data-lvsetup="1">入社日を保存して付与を作る</button>';
+      html += '<div class="h2">有休の付与（' + esc(M.name) + 'さん・手で）</div><div class="note">自動の付与のほかに足すときに使います。まちがえたときはマイナスで入れて直します（マイナスは「使った」として古い付与から引きます）</div>' +
         '<div style="display:flex;gap:6px"><input class="f" type="number" step="0.5" inputmode="decimal" id="lvGrant" placeholder="日数" style="flex:1;min-width:0"><input class="f" id="lvGrantMemo" placeholder="メモ（例 2026年分）" style="flex:2"></div><button class="btn sub" data-lvgrant="1">有休を付与する</button>';
     }
     $('main').innerHTML = html;
@@ -696,6 +715,17 @@
         if (!ok) return;
         loading(true);
         call('leaveDel', { id: id, ym: lvYm }).then(function (d) { lvData = d; meData = null; calData = null; renderLeave(); okToast('取り消しました'); })
+          .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
+    if (e.target.closest('[data-lvsetup]')) {
+      var hire = $('lvHire').value, week = $('lvWeek').value, remain = $('lvRemain').value;
+      if (!hire) { toast('入社日を入れてください'); return; }
+      confirmSheet(lvData.me.name + 'さん：入社日 ' + hire.replace(/-/g, '/') + (remain !== '' ? '・今の残り ' + remain + '日' : '') + ' で、自動の付与を作り直します', '保存する').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('leaveSetup', { staffId: lvData.me.staffId, hire: hire, week: week, remain: remain, ym: lvYm }).then(function (d) { lvData = d; meData = null; renderLeave(); okToast(d.note || '保存しました'); })
           .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
       return;
