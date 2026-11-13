@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-13c';
+  var SCREEN_VERSION = '2026-11-13e';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -958,7 +958,7 @@
   // 1回の売却に売り方を何行でも（例：28本×10台＋20本×15台）。売り方ごとに 数量・単価・金額 を入れる。数量が空の売り方は入れない
   function jkNewForm(d, keep) {
     keep = keep || {};
-    return { date: keep.date || buyToday(), buyer: keep.buyer || d.buyers[0] || '', pay: keep.pay || '現金', memo: '',
+    return { date: keep.date || buyToday(), buyer: keep.buyer || d.buyers[0] || '', pay: keep.pay || '現金', memo: '', src: keep.src || '再販用ユニット',
       lines: d.kinds.map(function (k) { return { kind: k.name, per: k.per, qty: '', price: '', total: '', touched: false }; }) };
   }
   function openJunk() {
@@ -980,12 +980,15 @@
   function renderJunk() {
     var d = jkData, f = jkForm;
     var html = '<div class="tiles"><div class="tile"><div class="v">' + d.junk + '<small>本</small></div><div class="k">今のジャンク</div></div>' +
+      (d.resale !== undefined ? '<div class="tile"><div class="v">' + d.resale + '<small>本</small></div><div class="k">今の再販用ユニット' + (d.rs && d.rs.list.length ? '<br>' + esc(d.rs.list.map(function (x) { return x.per + '本×' + x.units; }).join('・')) : '') + '</div></div>' : '') +
       '<div class="tile"><div class="v">' + yen(d.month).replace('万円', '<small>万円</small>') + '</div><div class="k">今月の売却</div></div>' +
       '<div class="tile"><div class="v">' + yen(d.year).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fy + '年度の売却</div></div></div>';
     html += '<div class="h2">売却を入れる</div>' +
       '<div class="lbl2">日付</div><input class="f" type="date" id="jkDate" value="' + esc(f.date) + '">' +
       '<div class="lbl2">売り先</div><div class="seg wrap">' + d.buyers.map(function (b) { return '<button data-jkbuyer="' + esc(b) + '"' + (f.buyer === b ? ' class="on"' : '') + '>' + esc(b) + '</button>'; }).join('') + '</div>' +
       '<input class="f" id="jkBuyerNew" placeholder="ほかの売り先（ここに書けばその名前で入ります）" value="' + (d.buyers.indexOf(f.buyer) < 0 ? esc(f.buyer) : '') + '">' +
+      '<div class="lbl2">ユニットはどこから</div><div class="seg">' + ['再販用ユニット', 'ジャンク用'].map(function (x) { var v = x === 'ジャンク用' ? 'ジャンク' : x; return '<button data-jksrc="' + v + '"' + ((f.src || '再販用ユニット') === v ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
+      '<div class="note">ユニット（28本・20本など）は選んだところから、バラはジャンク用から本数を引きます</div>' +
       '<div class="lbl2">売り方（売る分だけ数量を入れる。いくつでも一緒に入れられます）</div>' +
       f.lines.map(function (l, i) {
         var unit = l.per > 1 ? '台' : '本';
@@ -1004,7 +1007,7 @@
       var off = x.state === '取消';
       var ls = x.lines || [{ kind: x.kind, qty: x.qty, n: x.n, total: x.total }];
       return '<div class="card"' + (off ? ' style="opacity:.55"' : '') + '><div class="row1"><span class="no">' + esc(x.buyer) + '</span><span class="date">' + esc(x.date) + (off ? '（取消）' : '') + '</span></div>' +
-        '<div class="meta">' + ls.map(function (l) { return esc(l.kind + ' × ' + l.qty + '（' + l.n + '本）' + l.total.toLocaleString() + '円'); }).join('<br>') + '</div>' +
+        '<div class="meta">' + ls.map(function (l) { return esc(l.kind + ' × ' + l.qty + '（' + l.n + '本）' + l.total.toLocaleString() + '円' + (l.src === '再販用ユニット' ? '　再販用ユニットから' : '')); }).join('<br>') + '</div>' +
         '<div class="meta"><b>合計 ' + x.n + '本　' + x.total.toLocaleString() + '円</b>・' + esc(x.pay + '　' + x.by) + (x.memo ? '<br>' + esc(x.memo) : '') + '</div>' +
         (off ? '' : '<button type="button" class="mini" data-jkcancel="' + esc(x.id) + '" style="margin-top:6px">取り消す</button>') + '</div>';
     }).join('') : '<div class="empty">まだありません</div>');
@@ -1026,15 +1029,18 @@
     var t;
     if ((t = e.target.closest('[data-jkbuyer]'))) { jkRead(); jkForm.buyer = t.getAttribute('data-jkbuyer'); jkForm.lines.forEach(function (l) { l.touched = false; }); jkPrice(); renderJunk(); $('jkBuyerNew').value = ''; return; }
     if ((t = e.target.closest('[data-jkpay]'))) { jkRead(); jkForm.pay = t.getAttribute('data-jkpay'); renderJunk(); return; }
+    if ((t = e.target.closest('[data-jksrc]'))) { jkRead(); jkForm.src = t.getAttribute('data-jksrc'); renderJunk(); return; }
     if (e.target.closest('[data-jksave]')) {
       jkRead();
       var f = jkForm, u = jkUsed();
       if (!f.buyer) { toast('売り先を選んでください'); return; }
       if (!u.length) { toast('売る分の数量を入れてください'); return; }
-      confirmSheet(f.buyer + 'さんへ　' + jkSumText() + '　' + f.pay + '\nこの内容で入れますか？（ジャンクの本数から引きます）', '入れる').then(function (ok) {
+      var hasUnit = u.some(function (l) { return l.per > 1; }), hasBara = u.some(function (l) { return l.per <= 1; });
+      var fromTxt = (hasUnit ? 'ユニットは' + ((f.src || '再販用ユニット') === 'ジャンク' ? 'ジャンク用' : '再販用ユニット') + 'から' : '') + (hasUnit && hasBara ? '・' : '') + (hasBara ? 'バラはジャンク用から' : '') + '引きます';
+      confirmSheet(f.buyer + 'さんへ　' + jkSumText() + '　' + f.pay + '\nこの内容で入れますか？（' + fromTxt + '）', '入れる').then(function (ok) {
         if (!ok) return;
         loading(true);
-        call('invJunkSave', { date: f.date, buyer: f.buyer, pay: f.pay, memo: f.memo, lines: u.map(function (l) { return { kind: l.kind, qty: l.qty, price: l.price, total: l.total }; }) }).then(function (d) {
+        call('invJunkSave', { date: f.date, buyer: f.buyer, pay: f.pay, memo: f.memo, src: f.src || '再販用ユニット', lines: u.map(function (l) { return { kind: l.kind, qty: l.qty, price: l.price, total: l.total }; }) }).then(function (d) {
           jkData = d; invData = null; stData = null; jkForm = jkNewForm(d, f); jkPrice(); renderJunk();
           toast(d.note + (d.warns && d.warns.length ? '／' + d.warns.join('／') : ''));
         }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
@@ -1043,7 +1049,7 @@
     }
     if ((t = e.target.closest('[data-jkcancel]'))) {
       var id = t.getAttribute('data-jkcancel');
-      confirmSheet('この売却を取り消しますか？（ジャンクの本数を戻し、小口現金の行も消します）', '取り消す').then(function (ok) {
+      confirmSheet('この売却を取り消しますか？（引いた本数を元のところに戻し、小口現金の行も消します）', '取り消す').then(function (ok) {
         if (!ok) return;
         loading(true);
         call('invJunkCancel', { id: id }).then(function (d) { jkData = d; invData = null; stData = null; renderJunk(); toast(d.note); })
@@ -2104,7 +2110,11 @@
       html += one('未計測/G3', '未計測 G3', mMemo('G3'));
       html += one('新品', '新品', '新品棚 ' + item('NEW-MOD') + '本・新品ユニット ' + item('NEW-UNIT') + '台', 'new');
       html += one('12セル新品', '12セル新品', '', 'new');
-      html += one('再販用ユニット', '再販用ユニット', '');
+      var RS = C.rs || { list: [] };
+      var rsMemo = RS.list.length ? RS.list.map(function (x) { return x.per + '本×' + x.units + '台'; }).join('・') + '（' + RS.units + '台）' +
+        (RS.total !== (C.now['再販用ユニット'] || 0) ? '<br><span style="color:#B42318">※内訳の合計 ' + RS.total + '本 と本数がちがいます</span>' : '')
+        : '内訳はまだ（在庫 →「本数を合わせる・出す」で台数を入れる）';
+      html += one('再販用ユニット', '再販用ユニット', rsMemo);
       // 中古の合計（棚卸表の「中古バッテリー」と見比べる用）：棚＋ジャンク用＋未計測＋修理待ち（＋予備充電）
       var nv = function (id) { return C.now[id] || 0; };
       var parts = [['棚', repairTotal], ['ジャンク用', nv('ジャンク')], ['未計測 G2', nv('未計測/G2')], ['未計測 G3', nv('未計測/G3')], ['修理待ち', nv('修理用')], ['再販用ユニット', nv('再販用ユニット')]];
@@ -2320,6 +2330,7 @@
       if (!d.cnt) throw new Error('サーバーが古い版です');
       ca.now = d.cnt.now; ca.ids = Object.keys(d.cnt.now).filter(function (k) { return k !== '修理用'; });
       ca.items = {}; (d.items || []).forEach(function (i) { ca.items[i.id] = i.count; });
+      ca.rs = d.cnt.rs || { list: [], units: 0, total: 0 };
       renderCntAdj();
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
@@ -2329,6 +2340,8 @@
     html += '<div class="lbl2">どこから</div><select class="f" id="caFrom">' + opts('', '（外から入った）') + '</select>';
     html += '<div class="lbl2">どこへ</div><select class="f" id="caTo">' + opts('', '（外へ出した）') + '</select>';
     html += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="caN">';
+    html += '<div class="lbl2">再販用ユニットに入れる・出すとき（台数で）</div><div class="note">「1台の本数」と「台数」を入れると、本数は自動で（例：28本×2台＝56本）。再販用ユニットの内訳の台数も増える・減ります</div>' +
+      '<div style="display:flex;gap:8px;align-items:center"><input class="f" type="number" inputmode="numeric" id="caPer" placeholder="1台の本数" style="flex:1"><span>×</span><input class="f" type="number" inputmode="numeric" id="caUnits" placeholder="台数" style="flex:1"></div>';
     html += '<div class="lbl2">理由</div><div class="seg">' + ['ヤフオクで販売', 'ズベイルさんへ', '再販用ユニットに組んだ', '廃棄', 'その他'].map(function (r) { return '<button data-careason="' + r + '">' + r + '</button>'; }).join('') + '</div><input class="f" id="caWhy" placeholder="理由（上から選ぶか書く）">';
     html += '<button class="btn" data-camove="1">この本数を動かす</button>';
     html += '<div class="h2">本数の棚卸し（数えた本数に合わせる）</div><div class="note">数えた本数を入れたところだけ合わせます（空欄はそのまま）。差は「本数の動き」に「棚卸し」で残ります</div><table class="t">';
@@ -2338,6 +2351,12 @@
       '<tr><td>新品棚（モジュール）</td><td class="n">' + (ca.items['NEW-MOD'] || 0) + '本</td><td style="width:90px"><input class="f" type="number" inputmode="numeric" data-cait="NEW-MOD" style="padding:8px;font-size:16px"></td></tr>' +
       '<tr><td>新品ユニット</td><td class="n" style="' + ((ca.items['NEW-UNIT'] || 0) < 0 ? 'color:#B42318' : '') + '">' + (ca.items['NEW-UNIT'] || 0) + '台</td><td style="width:90px"><input class="f" type="number" inputmode="numeric" data-cait="NEW-UNIT" style="padding:8px;font-size:16px"></td></tr></table>';
     html += '<input class="f" id="caNote" placeholder="メモ（例：月末の棚卸し）"><button class="btn" data-castock="1">数えた本数に合わせる</button>';
+    var rsl = (ca.rs && ca.rs.list) || [];
+    html += '<div class="h2">再販用ユニットの内訳（数えた台数）</div><div class="note">1台の本数ごとに、数えた台数を入れて「内訳を保存」。本数の「再販用ユニット」も合計（' + ((ca.rs && ca.rs.total) || 0) + '本 → 入れた合計）に合わせます。なくなった大きさは 0 に</div><table class="t"><tr><th>1台の本数</th><th>台数</th></tr>';
+    rsl.concat([{ per: '', units: '' }, { per: '', units: '' }, { per: '', units: '' }]).forEach(function (x, i) {
+      html += '<tr><td><input class="f" type="number" inputmode="numeric" data-rsper="' + i + '" value="' + esc(String(x.per)) + '" placeholder="例：28" style="padding:8px;font-size:16px"></td><td><input class="f" type="number" inputmode="numeric" data-rsn="' + i + '" value="' + esc(String(x.units)) + '" placeholder="台" style="padding:8px;font-size:16px"></td></tr>';
+    });
+    html += '</table><button class="btn sub" data-rssave="1">内訳を保存</button>';
     $('main').innerHTML = html;
   }
   // ---- ユニットの追跡（このユニットのモジュールはどこへ） ----
@@ -2390,13 +2409,33 @@
     if (h === '#/inv/cadj') {
       if ((t = e.target.closest('[data-careason]'))) { $('caWhy').value = t.getAttribute('data-careason'); return; }
       if ((t = e.target.closest('[data-camove]'))) {
-        var p = { from: $('caFrom').value, to: $('caTo').value, n: $('caN').value, reason: $('caWhy').value };
+        var p = { from: $('caFrom').value, to: $('caTo').value, n: $('caN').value, reason: $('caWhy').value, per: $('caPer').value, units: $('caUnits').value };
         if (!p.from && !p.to) { toast('どこから・どこへを選んでください'); return; }
+        var rsSide = p.from === '再販用ユニット' || p.to === '再販用ユニット';
+        if (rsSide && Number(p.per) > 0 && Number(p.units) > 0) p.n = String(Number(p.per) * Number(p.units));
+        else if (Number(p.per) > 0 || Number(p.units) > 0) { if (!rsSide) { toast('台数で入れるのは、どこから・どこへ に「再販用ユニット」を選んだときだけです'); return; } toast('「1台の本数」と「台数」の両方を入れてください'); return; }
         if (!(Number(p.n) > 0)) { toast('本数を入れてください'); return; }
         if (!p.reason.trim()) { toast('理由を入れてください'); return; }
         confirmSheet(cntLabel(p.from) + ' → ' + cntLabel(p.to) + '　' + p.n + '本（' + p.reason + '）', '動かす').then(function (ok) {
           if (!ok) return;
-          call('cntMove', p).then(function (d) { ca.now = d.now; invData = null; okToast('動かしました'); if (d.notes && d.notes.length) toast(d.notes.join('／')); renderCntAdj(); }).catch(function (er) { toast(er.message); });
+          call('cntMove', p).then(function (d) { ca.now = d.now; if (d.rs) ca.rs = d.rs; invData = null; okToast('動かしました'); if (d.notes && d.notes.length) toast(d.notes.join('／')); renderCntAdj(); }).catch(function (er) { toast(er.message); });
+        });
+        return;
+      }
+      if ((t = e.target.closest('[data-rssave]'))) {
+        var rsIn = [], bad = '';
+        document.querySelectorAll('[data-rsper]').forEach(function (el) {
+          var i = el.getAttribute('data-rsper'), per = String(el.value).trim(), un = String((document.querySelector('[data-rsn="' + i + '"]') || {}).value || '').trim();
+          if (per === '' && un === '') return;
+          if (!(Number(per) > 0) || un === '' || !(Number(un) >= 0)) { bad = '1台の本数と台数の両方を入れてください'; return; }
+          rsIn.push({ per: per, units: un });
+        });
+        if (bad) { toast(bad); return; }
+        if (!rsIn.length) { toast('台数を入れてください'); return; }
+        var rsSum = rsIn.reduce(function (a, x) { return a + Number(x.per) * Number(x.units); }, 0);
+        confirmSheet('再販用ユニットの内訳を\n' + rsIn.filter(function (x) { return Number(x.units) > 0; }).map(function (x) { return x.per + '本×' + x.units + '台'; }).join('・') + '\nにします（合計 ' + rsSum + '本。本数の「再販用ユニット」も ' + rsSum + '本 に）', '保存する').then(function (ok) {
+          if (!ok) return;
+          call('cntStock', { values: {}, rs: rsIn, note: '再販用ユニットの内訳' }).then(function (d) { ca.now = d.now; if (d.rs) ca.rs = d.rs; invData = null; okToast('内訳を保存しました'); renderCntAdj(); }).catch(function (er) { toast(er.message); });
         });
         return;
       }
