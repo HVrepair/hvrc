@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-12d';
+  var SCREEN_VERSION = '2026-11-13a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2098,8 +2098,10 @@
     if (C) {
       var one = function (id, label, memo, cls) { return '<tr class="one' + (cls ? ' ' + cls : '') + '"><td class="rk">' + label + '</td>' + cell(C.now[id] || 0, 'sum') + '<td colspan="' + G.length + '" class="memo">' + (memo || '') + '</td></tr>'; };
       html += one('ジャンク', 'ジャンク用', 'インピ×放電×');
-      html += one('未計測/G2', '未計測 G2', '分解待ち ' + d.measure.length + '台');
-      html += one('未計測/G3', '未計測 G3', '');
+      var mWait = function (c) { return d.measure.filter(function (u) { return (u.cell || 'G2') === c; }); };
+      var mMemo = function (c) { var a = mWait(c), n = a.reduce(function (s, u) { return s + (need[u.model] || 0); }, 0); return '分解待ち ' + a.length + '台' + (n ? '（' + n + '本）' : ''); };
+      html += one('未計測/G2', '未計測 G2', mMemo('G2'));
+      html += one('未計測/G3', '未計測 G3', mMemo('G3'));
       html += one('新品', '新品', '新品棚 ' + item('NEW-MOD') + '本・新品ユニット ' + item('NEW-UNIT') + '台', 'new');
       html += one('12セル新品', '12セル新品', '', 'new');
       html += one('再販用ユニット', '再販用ユニット', '');
@@ -2144,8 +2146,8 @@
   }
   function unitTable(list, link) {
     if (!list.length) return '<div class="empty">ありません</div>';
-    return '<table class="t"><tr><th>管理番号</th><th>車種</th><th>登録</th></tr>' + list.map(function (u) {
-      return '<tr><td>' + (link ? '<a href="#/inv/dis/' + encodeURIComponent(u.unitNo) + '">' + esc(u.unitNo) + '</a>' : esc(u.unitNo)) + '</td><td>' + esc(u.model) + '</td><td class="meta">' + esc(u.at) + '</td></tr>';
+    return '<table class="t"><tr><th>管理番号</th><th>車種</th><th>未計測</th><th>登録</th></tr>' + list.map(function (u) {
+      return '<tr><td>' + (link ? '<a href="#/inv/dis/' + encodeURIComponent(u.unitNo) + '">' + esc(u.unitNo) + '</a>' : esc(u.unitNo)) + '</td><td>' + esc(u.model) + '</td><td>' + esc(u.cell || '') + '</td><td class="meta">' + esc(u.at) + '</td></tr>';
     }).join('') + '</table>';
   }
 
@@ -2247,7 +2249,8 @@
     if (!ci.rows) ciReset();
     var u = ci.unit;
     html += '<div class="head"><div class="big">' + esc(u ? u.unitNo : 'ユニットなし（バラ）') + '</div><div class="meta">' + esc(u ? u.kind + '・' + u.model + (u.n ? '・' + u.n + '本' : '') : '') + '</div></div>';
-    html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
+    if (u && u.fixed) html += '<div class="lbl2">どこから（未計測）</div><div class="note">このユニットの本数は「' + esc(u.src.replace('/', ' ')) + '」に入っているので、そこから減らします（モジュールの種類は下で選んだとおりの棚に入ります）</div>';
+    else html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">種類（全部同じならここで1回。他社リビルドなどでバラバラなら、下の行ごとに変える）</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">結果（同じ保証・種類・ランクでも、数値が違えば行を分ける）</div>';
     html += ci.rows.map(ciRowHtml).join('');
@@ -2368,7 +2371,7 @@
       if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; ci.rows = null; renderCntInspect(); return; }
       if ((t = e.target.closest('[data-cig]'))) {
         var old = ci.grade;
-        ci.grade = t.getAttribute('data-cig'); if (!ci.src) ci.src = ci.grade === 'G3' ? '未計測/G3' : '未計測/G2';
+        ci.grade = t.getAttribute('data-cig'); if (!ci.src && !(ci.unit && ci.unit.fixed)) ci.src = ci.grade === 'G3' ? '未計測/G3' : '未計測/G2';
         (ci.rows || []).forEach(function (r) { if (!r.grade || r.grade === old) r.grade = ci.grade; });
         renderCntInspect(); return;
       }
@@ -2597,11 +2600,16 @@
     confirmSheet(sup.name + '　' + buySumText(d) + '\n' + (buyPlan ? '「到着待ち」で予備登録しますか？（番号はまだ付きません）' : 'この内容で登録しますか？'), buyPlan ? '予備登録する' : '登録する').then(function (ok) {
       if (!ok) return;
       loading(true);
-      call('invBuy', p).then(function (r) {
+      var go = function (r) {
+        if (r && r.dup) { loading(false); return confirmSheet(r.dup + '\n\n別の入荷なら「それでも登録する」', 'それでも登録する').then(function (ok2) {
+          if (!ok2) return; loading(true);
+          p.dupOk = true; return call('invBuy', p).then(go);
+        }); }
         if (p.plan) { buyList = r.list; buyPending = r.pending || []; buyReset(); buyPlan = false; toast(r.note); renderInbound(); return; }
         buyLast = r; buyCaseUnit = ''; buyList = null; buyPending = null; buyReset();
         return invLoad(true).then(renderInbound);
-      }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+      };
+      call('invBuy', p).then(go).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     });
   }
   function doInbound(serial) {
@@ -2723,10 +2731,15 @@
       confirmSheet(aid + ' を本登録します（番号を付けて、未計測・棚卸表に入れます）', '本登録する').then(function (ok) {
         if (!ok) return;
         loading(true);
-        call('invBuyArrive', ap).then(function (r) {
+        var goA = function (r) {
+          if (r && r.dup) { loading(false); return confirmSheet(r.dup + '\n\n別の入荷なら「それでも登録する」', 'それでも登録する').then(function (ok2) {
+            if (!ok2) return; loading(true);
+            ap.dupOk = true; return call('invBuyArrive', ap).then(goA);
+          }); }
           arrId = ''; buyLast = r.arrived; buyCaseUnit = ''; buyList = r.list; buyPending = r.pending || []; toast(r.note);
           return invLoad(true).then(renderInbound);
-        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        };
+        call('invBuyArrive', ap).then(goA).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
       return;
     }
