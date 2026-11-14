@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-14e';
+  var SCREEN_VERSION = '2026-11-14f';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -800,8 +800,7 @@
         'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。修理の戻りは0円（番号の頭 ' + esc(s.ret) + '）、新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
         '「シート」は受注シートのバッテリー内容から計算した件数（' + d.est.past + '件）。' +
         'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' をその月の修理件数で割る。' +
-        '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>' +
-        (d.est.noPrice ? '<div class="advice">値段がわからなかった購入ユニット ' + d.est.noPrice + '台（使った本数の多い順）：' + esc(d.est.noPriceTop.join('、')) + (d.est.noPrice > 15 ? ' など' : '') + '。古い月の棚卸表を「過去のユニットを送る」で送るか、「ユニット」シートの仕入金額に入れると計算に入ります</div>' : '');
+        '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>';
       var tbl = function (title, list) {
         if (!list || !list.length) return '';
         return '<div class="h2">' + title + '</div><table class="t"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">率</th><th style="text-align:right">保証の<br>費用</th></tr>' +
