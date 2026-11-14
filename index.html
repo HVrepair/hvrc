@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-14b';
+  var SCREEN_VERSION = '2026-11-14c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1329,6 +1329,7 @@
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
       '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
       '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + traceHtml() + orderPfHtml(d);
+    if (d.cancel) html += '<div class="warnbox"><b>この受注はキャンセルです</b>（一覧・カレンダー・集計には出ません）<button class="btn sub" data-uncancel="1" style="margin-top:6px">キャンセルを取り消す</button></div>';
     if (d.hidden) html += '<div class="warnbox">この受注はアプリの一覧に出していません（' + esc(d.hidden) + '）<button class="btn sub" data-jobshow="1" style="margin-top:6px">アプリに出す</button></div>';
     var stage = '', section = '', firstOpen = '';
     var stages = {};
@@ -1355,7 +1356,10 @@
         (it.result ? '' : '<button class="na-btn" data-na="' + it.id + '">該当<br>なし</button>') + '</div>';
       if (openInline === it.id && !it.result) html += inlineHtml(it);
     });
-    if (!d.hidden) html += '<div class="h2" style="margin-top:22px">この受注</div><div class="note">バッテリー交換ではない受注（インバーター・ヘッドライト磨きなど）は、一覧から外せます。受注シートの行はそのまま残ります</div>' +
+    if ((!d.hidden && !d.cancel) || (!d.cancel && !d.rerepair)) html += '<div class="h2" style="margin-top:22px">この受注</div>';
+    if (!d.cancel && !d.rerepair) html += '<div class="note">お客様の都合などで取りやめになったときは、キャンセルにします（受注シートのグレードが「キャンセル」になります。あとで取り消せます）</div>' +
+      '<button class="btn sub" data-ordcancel="1" style="color:#B42318;border-color:#F3B8B2">この受注をキャンセルにする</button>';
+    if (!d.hidden && !d.cancel) html += '<div class="note" style="margin-top:12px">バッテリー交換ではない受注（インバーター・ヘッドライト磨きなど）は、一覧から外せます。受注シートの行はそのまま残ります</div>' +
       '<button class="btn sub" data-jobhide="1">この受注をアプリに出さない</button>';
     $('main').innerHTML = html;
     if (scroll && firstOpen) { var el = $('it-' + firstOpen); if (el) el.scrollIntoView({ block: 'center' }); }
@@ -1388,6 +1392,21 @@
         if (current && current.key === key) { current.re = r; reEdit = false; renderOrder(false); okToast('再修理の理由を保存しました'); }
         reData = null;
       }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if (e.target.closest('[data-ordcancel]') || e.target.closest('[data-uncancel]')) {
+      var cx = !!e.target.closest('[data-ordcancel]'), kc = current.key;
+      var msg = cx ? current.no + '　' + (current.name || '') + '様　' + (current.model || '') + '\nこの受注をキャンセルにしますか？\n\n・受注シートのグレードを「キャンセル」にします（元のグレードはメモに残ります）\n・一覧・カレンダー・集計から外れます\n・小口現金に入れた現金の行は消します\n・電子受付の領収書・請求書は自動で取り消されます'
+        : current.no + ' のキャンセルを取り消して、元のグレードに戻しますか？';
+      confirmSheet(msg, cx ? 'キャンセルにする' : '取り消す').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('orderCancel', { key: kc, cancel: cx }).then(function (r) {
+          listCache = null;
+          if (current && current.key === kc) { current = r; renderOrder(false); }
+          confirmSheet((r.notes || []).join('\n\n'), 'わかった');
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
       return;
     }
     if (e.target.closest('[data-jobhide]')) {
@@ -3074,11 +3093,11 @@
       d.staff.map(function (n) { return '<button type="button" data-nstaff="' + esc(n) + '"' + (nf.staff.indexOf(n) >= 0 ? ' class="on"' : '') + '>' + esc(n) + '</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">車種型式（よく出る車種）</div>';
     if (d.modelsTop && d.modelsTop.length) html += '<div class="seg wrap" id="nModelBtns">' + d.modelsTop.map(function (x) {
-      var g = nGroup(x.model), nm = g !== null && d.prices ? String(d.prices.groups[g] || '').replace(/など$/, '') : '';
+      var nm = nCarName(x.model);
       return '<button type="button" data-nmodel="' + esc(x.model) + '" style="line-height:1.2">' + esc(x.model) + (nm ? '<small style="display:block;font-size:11px;font-weight:400;opacity:.75">' + esc(nm) + '</small>' : '') + '</button>';
     }).join('') + '</div>';
     html += '<select class="f" id="nModelSel"><option value="">ほかの車種を一覧から選ぶ</option>' + d.models.map(function (m) {
-      var g = nGroup(m), nm = g !== null && d.prices ? String(d.prices.groups[g] || '').replace(/など$/, '') : '';
+      var nm = nCarName(m);
       return '<option value="' + esc(m) + '">' + esc(m + (nm ? '　' + nm : '')) + '</option>';
     }).join('') + '</select>';
     html += '<input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="一覧にない車種は、ここに入力（例：ZVW30）"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
@@ -3117,6 +3136,7 @@
     if (/^AVU65/.test(m)) m = 'AVU65';
     return (nForm.alias && nForm.alias[m]) || m;
   }
+  function nCarName(model) { var N = nForm && nForm.modelNames; return N ? (N[nModelKey(model)] || N[model] || '') : ''; }
   function nGroup(model) {
     var P = nForm.prices; if (!P || !model) return null;
     var m = nModelKey(model);
