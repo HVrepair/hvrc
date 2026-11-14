@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-14c';
+  var SCREEN_VERSION = '2026-11-14d';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -444,7 +444,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg') { reData = null; stData = null; pfData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg') { reData = null; stData = null; pfData = null; bidData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -883,6 +883,50 @@
     stTip[id] = items;
     return '<div class="cwrap" style="overflow-x:auto">' + svg + '</div><div class="ckey"><span><i style="background:var(--navy)"></i>実績</span><span><i style="background:#5B7FA8"></i>今月（予約）</span><span><i style="background:#DCE5F0;border:1px dashed #6F87A6"></i>予想</span><span>単位：' + unit + '</span></div><div class="ctip" id="tip-' + esc(id) + '">棒を押すと、その月の数字が出ます</div>';
   }
+
+  // ---- 入札の目安（G2・G3 のユニットを1台いくらまでなら、この粗利率を保てるか）。粗利を見られる人だけ ----
+  var bidData = null, bidBusy = false, bidOpen = false;
+  document.addEventListener('toggle', function (e) { if (e.target && e.target.id === 'bidDet') bidOpen = e.target.open; }, true);
+  function bidLoad(fresh) {
+    if (bidBusy) return;
+    bidBusy = true;
+    call('bidGuide', fresh ? { fresh: true } : {}).then(function (d) { bidData = d || { hide: true }; })
+      .catch(function (e) { bidData = { hide: true, error: e.message }; })
+      .then(function () { bidBusy = false; var el = $('bidBox'); if (el) el.innerHTML = bidHtml(); });
+  }
+  function bidYen(perMod, size) { return Math.floor(perMod * size * 1.1 / 1000) * 1000; } // 税込・1,000円単位で切り捨て
+  function bidHtml() {
+    if (!bidData) return '<div class="lbl2">入札の目安</div><div class="meta">計算中…（少し時間がかかります）</div>';
+    if (bidData.hide || bidData.error && !bidData.list) return '';
+    var L = (bidData.list || []).filter(function (x) { return !x.none; });
+    var h = '<div class="lbl2">入札の目安（1台あたり・税込）</div>';
+    if (!L.length) return h + '<div class="meta">まだ G2・G3 だけで組んだ修理の記録がありません</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(' + L.length + ',1fr);gap:8px;margin:6px 0">' + L.map(function (x) {
+      var row = x.rows.filter(function (r) { return r.cur; })[0] || x.rows.filter(function (r) { return r.r === 35; })[0] || x.rows[0];
+      var main = x.sizes[0];
+      var nowBuy = x.pm0 ? Math.round(x.pm0 * main * 1.1 / 1000) * 1000 : null;
+      return '<div style="border:2px solid #1F3A5F;border-radius:14px;padding:10px;text-align:center;background:#F5F8FC">' +
+        '<div style="font-size:13px;color:#475467">' + esc(x.fam) + ' のユニット（' + main + '本）</div>' +
+        '<div style="font-size:26px;font-weight:800;line-height:1.2;color:#1F3A5F">' + bidYen(row.perMod, main).toLocaleString() + '<small style="font-size:13px">円まで</small></div>' +
+        '<div style="font-size:11px;color:#667085">' + (row.cur ? '今の粗利率 ' + row.r + '% を保つ上限<br>（＝今の平均の買値。これより高いと率が下がる）' : '粗利率 ' + row.r + '% のとき' + (nowBuy ? '<br>今の平均の買値 ' + nowBuy.toLocaleString() + '円' : '')) + '</div>' +
+        '<div style="font-size:12px;margin-top:4px;color:#B42318">赤字の境め ' + bidYen(x.even, main).toLocaleString() + '円</div>' +
+        (x.sizes.length > 1 ? '<div style="font-size:12px;color:#475467;margin-top:2px">' + x.sizes.slice(1).map(function (k) { return k + '本 ' + bidYen(row.perMod, k).toLocaleString() + '円'; }).join('・') + '</div>' : '') +
+        (x.few || x.guessed ? '<div style="font-size:11px;color:#B54708;margin-top:2px">※記録が少ないので目安</div>' : '') + '</div>';
+    }).join('') + '</div>';
+    h += '<details id="bidDet" style="margin:2px 0 10px"' + (bidOpen ? ' open' : '') + '><summary style="cursor:pointer;color:#1F3A5F;font-size:14px;padding:6px 0">粗利率ごとの上限・計算のもと</summary>';
+    L.forEach(function (x) {
+      h += '<div style="font-weight:700;margin:10px 0 4px">' + esc(x.fam) + '</div><table class="t"><tr><th>粗利率</th>' + x.sizes.map(function (k) { return '<th>' + k + '本</th>'; }).join('') + '</tr>' +
+        x.rows.map(function (r) {
+          return '<tr style="' + (r.cur ? 'background:#EFF8FF;font-weight:700' : '') + '"><td>' + r.r + '%' + (r.cur ? '（今）' : '') + '</td>' + x.sizes.map(function (k) { return '<td class="n">' + bidYen(r.perMod, k).toLocaleString() + '円</td>'; }).join('') + '</tr>';
+        }).join('') +
+        '<tr><td>0%（赤字の境め）</td>' + x.sizes.map(function (k) { return '<td class="n">' + bidYen(x.even, k).toLocaleString() + '円</td>'; }).join('') + '</tr></table>';
+      h += '<div class="meta">直近' + x.months + 'か月の ' + esc(x.fam) + ' だけで組んだ修理 ' + x.repairs + '件：売上 平均 ' + Number(x.S).toLocaleString() + '円（税別）・モジュール以外の費用 ' + Number(x.O).toLocaleString() + '円（バスバー・送料・人件費）・1件 ' + x.n + '本。' +
+        '検査で使える ' + x.use + '%・ジャンク ' + x.junk + '%' + (x.guessed ? '（検査の記録が少ないので目安）' : '（購入ユニット ' + x.inspUnits + '台）') + (x.junkVal ? '・ジャンク1本 ' + x.junkVal + '円で売れる分を足しています' : '') + '</div>';
+    });
+    h += '<div class="note">送料も入れた金額で見てください（落札額＋送料がこの金額まで）。ここの粗利率は、検査で使えなかった分も原価に入れた率なので、「粗利と品質」の画面の率より少し低く出ます。中身の良いユニット（使える割合が高い）なら、これより高くても合います' +
+      (bidData.missing && bidData.missing.length ? '。※「設定」の ' + bidData.missing.join('・') + ' が 0 なので、その分だけ高めに出ています' : '') + '</div></details>';
+    return h;
+  }
   // ---- 来月の仕入れの目安 ----
   var BUY_SEG = [['have', '今ある', '#1F3A5F'], ['pend', '未計測', '#3E6FA8'], ['collect', '回収待ち', '#7FA7D3'], ['buying', '到着待ち', '#A9C6E6'], ['nextRet', '来月の戻り', '#D3E3F4'], ['fromUsable', '使用可能の余り', '#A6D3B4']];
   function buyGuideHtml(B) {
@@ -932,6 +976,8 @@
     if (B.guessed) h += '<div class="note">※検査の記録がまだ少ないので、歩留まりは目安（使用可能 55%・半年 30%）で計算しています</div>';
     h += '<div class="note">未計測・回収待ち・到着待ち・来月の戻りは、検査の歩留まりをかけた「使える見込み」の本数です。回収待ち＝修理で外して、まだ店に届いていない電池（' + (B.collectUnits || 0) + '台）。到着待ち＝予備登録した仕入れ（' + (B.buyingUnits || 0) + '台）</div>' +
       '<a class="btn sub" href="#/inv/suppliers" style="display:block;text-align:center;text-decoration:none">仕入先の成績を見る</a>';
+    h += '<div id="bidBox">' + bidHtml() + '</div>';
+    if (!bidData) setTimeout(function () { bidLoad(); }, 0);
     return h;
   }
   function renderStats() {
@@ -2759,6 +2805,7 @@
     if (!buy) buyReset();
     if (!d.buy) return '<div class="empty">サーバーが古い版です。管理者に「仕入れ」の貼り付けを確認してもらってください</div>';
     var sup = buySup(d), h = '';
+    if (!buyLast && !(sup && sup.isNew)) { h += '<div id="bidBox">' + bidHtml() + '</div>'; if (!bidData) setTimeout(function () { bidLoad(); }, 0); }
     if (buyLast) {
       h += '<div class="big-ok">登録しました：<b>' + esc(buyLast.id) + '</b>　' + esc(buyLast.detail) + '（' + buyLast.qty + '本・税別 ' + Number(buyLast.ex).toLocaleString() + '円）' +
         (buyLast.label !== '-' ? '<br>ラベルに <b>' + esc(buyLast.label) + '</b> を書いてください' : '') + '</div>';
