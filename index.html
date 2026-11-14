@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-14a';
+  var SCREEN_VERSION = '2026-11-14b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -444,7 +444,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit') { reData = null; stData = null; pfData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg') { reData = null; stData = null; pfData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -473,6 +473,7 @@
     else if (h === '#/inv/suppliers') openSuppliers();
     else if (h === '#/inv/junk') openJunk();
     else if (h === '#/rere') openRe();
+    else if (h === '#/kg') openKg();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
   }
@@ -1758,6 +1759,72 @@
 
   // ---- マイページ ----
   var meData = null, meTab = 'thisMonth';
+  // ---- 小口現金（修理以外） ----
+  var kgData = null, kgForm = { dir: '出金', account: '' };
+  function openKg() {
+    setNav('#/me', '#/me');
+    $('title').textContent = '小口現金';
+    if (kgData) renderKg(); else loading(true);
+    call('kgView').then(function (d) { kgData = d; if (location.hash === '#/kg') renderKg(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function kgRead() {
+    if (!$('kgAmount')) return;
+    kgForm.date = $('kgDate').value; kgForm.account = $('kgAcc').value; kgForm.label = $('kgLabel').value; kgForm.amount = $('kgAmount').value;
+  }
+  function renderKg() {
+    var d = kgData, f = kgForm;
+    var accs = f.dir === '入金' ? d.accountsIn : d.accountsOut;
+    var html = '<div class="tiles"><div class="tile"><div class="v">' + Number(d.balance).toLocaleString() + '<small>円</small></div><div class="k">今の残高（' + esc(d.sheet) + '）</div></div></div>';
+    html += '<div class="panel"><div class="lbl2">出金・入金</div><div class="seg">' + ['出金', '入金'].map(function (x) { return '<button type="button" data-kgdir="' + x + '"' + (f.dir === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
+      '<div class="note">' + (f.dir === '出金' ? '小口現金から払ったお金（ガソリン代・文具・駐車場代など）' : '修理以外で受け取った現金（修理の現金は、チェックリストの「お支払いいただく」で自動で入ります）') + '</div>' +
+      '<div class="lbl2">日付</div><input class="f" type="date" id="kgDate" value="' + esc(f.date || d.today) + '" min="' + esc(d.min) + '" max="' + esc(d.today) + '">' +
+      '<div class="lbl2">相手科目</div>' + (accs.length ? '<div class="seg wrap">' + accs.map(function (a) { return '<button type="button" data-kgacc="' + esc(a) + '"' + (f.account === a ? ' class="on"' : '') + '>' + esc(a) + '</button>'; }).join('') + '</div>' : '') +
+      '<input class="f" id="kgAcc" value="' + esc(f.account || '') + '" placeholder="上にないときは入力（例：旅費交通費）">' +
+      '<div class="lbl2">備考（何に・誰から）</div><input class="f" id="kgLabel" value="' + esc(f.label || '') + '" placeholder="' + (f.dir === '出金' ? '例：ガソリン代　出光 行橋' : '例：○○様 部品代') + '">' +
+      '<div class="lbl2">金額（円）</div><input class="f" type="number" inputmode="numeric" id="kgAmount" value="' + esc(f.amount || '') + '" placeholder="例：3500">' +
+      '<button class="btn" data-kgsave="1">小口現金に入れる</button></div>';
+    html += '<div class="h2">アプリから入れた分（今月・先月）</div>';
+    html += d.mine.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>金額</th><th></th></tr>' + d.mine.map(function (x) {
+      return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + '・' + esc(x.by) + '</div></td><td class="n" style="color:' + (x.out ? '#B42318' : '#027A48') + '">' + (x.out ? '−' + x.out.toLocaleString() : '＋' + x.in.toLocaleString()) + '</td><td>' +
+        (x.canCancel ? '<button type="button" class="mini" style="white-space:nowrap" data-kgcancel="' + esc(x.key) + '">取消</button>' : '') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="empty">まだありません</div>';
+    html += '<div class="h2">' + esc(d.sheet) + ' の小口（新しい順）</div>';
+    html += d.rows.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>入金</th><th>出金</th></tr>' + d.rows.map(function (x) {
+      return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + (x.app ? '（アプリ・' + esc(x.by) + '）' : x.repair ? '（修理）' : '') + '</div></td><td class="n">' + (x.in ? x.in.toLocaleString() : '') + '</td><td class="n">' + (x.out ? x.out.toLocaleString() : '') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="empty">まだありません</div>';
+    html += '<div class="note">入れた行は、小口現金管理表のその月のシートに日付順で入ります（残高も計算し直されます）。取り消せるのは、アプリから入れた今月・先月の行で、入れた本人と店長・管理者だけです</div>';
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/kg' || !kgData) return;
+    var t;
+    if ((t = e.target.closest('[data-kgdir]'))) { kgRead(); kgForm.dir = t.getAttribute('data-kgdir'); kgForm.account = ''; renderKg(); return; }
+    if ((t = e.target.closest('[data-kgacc]'))) { kgRead(); kgForm.account = t.getAttribute('data-kgacc'); renderKg(); return; }
+    if ((t = e.target.closest('[data-kgsave]'))) {
+      kgRead();
+      var f = kgForm;
+      if (!String(f.account || '').trim()) { toast('相手科目を選ぶか入れてください'); return; }
+      if (!String(f.label || '').trim()) { toast('備考（何に・誰から）を入れてください'); return; }
+      if (!(Number(f.amount) > 0)) { toast('金額を入れてください'); return; }
+      confirmSheet(f.dir + '　' + Number(f.amount).toLocaleString() + '円\n' + (f.date || kgData.today) + '　' + f.account + '　' + f.label + '\nこの内容で小口現金に入れますか？', '入れる').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('kgAdd', { dir: f.dir, date: f.date || kgData.today, account: f.account, label: f.label, amount: f.amount }).then(function (d) {
+          kgData = d; kgForm = { dir: f.dir, account: '' }; renderKg(); okToast(d.note);
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
+    if ((t = e.target.closest('[data-kgcancel]'))) {
+      var key = t.getAttribute('data-kgcancel');
+      confirmSheet('この行を小口現金管理表から取り消しますか？', '取り消す').then(function (ok) {
+        if (!ok) return;
+        kgRead(); loading(true);
+        call('kgCancel', { key: key }).then(function (d) { kgData = d; renderKg(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+    }
+  });
+
   function openMe() {
     setNav('#/me', '');
     $('title').textContent = 'マイページ';
@@ -1777,6 +1844,7 @@
         '<div class="pbar' + (L.left < 0 ? ' over' : '') + '" style="margin-top:6px"><div style="width:' + Math.min(100, L.allowance ? L.kokyu / L.allowance * 100 : 0) + '%"></div></div>' +
         (L.ledger && L.ledger.duty && L.ledger.duty.need > 0 ? '<div class="meta" style="margin-top:6px;color:' + (L.ledger.duty.level === 'high' ? '#B42318' : '#B54708') + ';font-weight:700">年5日の有休：' + esc(L.ledger.duty.to) + ' までに あと ' + fmtDay(L.ledger.duty.need) + '日</div>' : '') + '</a>';
     }
+    if (d.koguchi) html += '<a class="card tap" href="#/kg" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">小口現金</span><span class="date">入れる・見る ›</span></div><div class="meta">修理以外の出金（ガソリン代・文具など）・入金を入れる</div></a>';
     if (d.role === '店長' || d.role === '管理者') html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a><a href="#/leave" class="alt">みんなの休み</a></div>';
     html += '<div class="tabs">' + [['thisMonth', '今月'], ['lastMonth', '先月'], ['fiscal', '今年度']].map(function (t) {
       return '<button class="tab' + (meTab === t[0] ? ' on' : '') + '" data-ptab="' + t[0] + '">' + t[1] + '（' + esc(d.periods[t[0]].label) + '）</button>';
