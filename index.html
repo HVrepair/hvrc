@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-13j';
+  var SCREEN_VERSION = '2026-11-14a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -882,6 +882,57 @@
     stTip[id] = items;
     return '<div class="cwrap" style="overflow-x:auto">' + svg + '</div><div class="ckey"><span><i style="background:var(--navy)"></i>実績</span><span><i style="background:#5B7FA8"></i>今月（予約）</span><span><i style="background:#DCE5F0;border:1px dashed #6F87A6"></i>予想</span><span>単位：' + unit + '</span></div><div class="ctip" id="tip-' + esc(id) + '">棒を押すと、その月の数字が出ます</div>';
   }
+  // ---- 来月の仕入れの目安 ----
+  var BUY_SEG = [['have', '今ある', '#1F3A5F'], ['pend', '未計測', '#3E6FA8'], ['collect', '回収待ち', '#7FA7D3'], ['buying', '到着待ち', '#A9C6E6'], ['nextRet', '来月の戻り', '#D3E3F4'], ['fromUsable', '使用可能の余り', '#A6D3B4']];
+  function buyGuideHtml(B) {
+    var h = '<div class="h2">来月の仕入れの目安</div>';
+    if (!B.rows) return h + (B.lines || []).map(function (l) { return '<div class="advice">' + esc(l) + '</div>'; }).join('');
+    var mo = Number(String(B.next).split('-')[1]);
+    // ① 何台買うか（大きく）
+    var hero = [['G2 のユニット', B.g2, '台', '半年用の分も含む'], ['G3 のユニット', B.g3, '台', ''], ['新品', B.nw, '台分', '']].filter(function (x, i) { return i < 2 || x[1]; });
+    if (!B.g2 && !B.g3 && !B.nw) h += '<div style="border:2px solid #12B76A;background:#ECFDF3;border-radius:14px;padding:14px 16px;margin:8px 0"><div style="font-size:22px;font-weight:800;color:#027A48">✓ 買わなくて大丈夫</div><div class="meta">今の在庫・未計測・回収待ち・到着待ち・' + mo + '月の戻りで足りる見込み</div></div>';
+    else h += '<div style="display:grid;grid-template-columns:repeat(' + hero.length + ',1fr);gap:8px;margin:8px 0">' + hero.map(function (x) {
+      var on = x[1] > 0;
+      return '<div style="border-radius:14px;padding:12px 10px;text-align:center;background:' + (on ? '#FEF3F2' : '#F2F4F7') + ';border:2px solid ' + (on ? '#F04438' : '#E4E7EC') + '">' +
+        '<div style="font-size:13px;color:#475467">' + esc(x[0]) + '</div><div style="font-size:34px;font-weight:800;line-height:1.1;color:' + (on ? '#B42318' : '#98A2B3') + '">' + (on ? '約' + x[1] : '0') + '<small style="font-size:14px;font-weight:700">' + x[2] + '</small></div>' +
+        (x[3] && on ? '<div style="font-size:11px;color:#667085">' + esc(x[3]) + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+    h += '<div class="chips" style="margin:4px 0 10px">' + ['📅 ' + mo + '月 約' + B.N + '件の見込み' + (B.booked ? '（予約 ' + B.booked + '件）' : ''), '↩ 戻り 約' + B.retUnits + '台', '＋ 余裕 ' + B.margin + '%', '28本のユニットで計算'].map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join('') + '</div>';
+    // ② 棚ごと：必要な本数と、使える見込み（積み上げバー）
+    h += '<div class="card">';
+    B.rows.forEach(function (r) {
+      var segs = BUY_SEG.map(function (x) { return { k: x[0], label: x[1], color: x[2], n: Number(r[x[0]]) || 0 }; }).filter(function (x) { return x.n > 0; });
+      var supply = segs.reduce(function (a, x) { return a + x.n; }, 0);
+      if (!r.need && !supply) return;
+      var scale = Math.max(r.need, supply + (r.short || 0), 1);
+      var pc = function (n) { return Math.max(0, Math.min(100, n / scale * 100)); };
+      var unit = r.k === '新品' ? '台分' : '台';
+      var st = r.short ? '<b style="color:#B42318">' + r.short + '本 足りない → 約' + (r.k === '新品' ? Math.ceil(r.short / 28) : r.units) + unit + '</b>' : '<b style="color:#027A48">足りる</b>';
+      h += '<div style="margin:6px 0 14px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px"><span><b>' + esc(r.label) + '</b>' + (r.k === '半年' && r.units ? '<span class="meta">（G2 のユニットで買う）</span>' : '') + '</span><span>' + st + '</span></div>';
+      h += '<div style="position:relative;height:26px;margin-top:6px;background:#F2F4F7;border-radius:6px;overflow:hidden;display:flex">' +
+        segs.map(function (x) { return '<div title="' + esc(x.label + ' ' + x.n + '本') + '" style="width:' + pc(x.n) + '%;background:' + x.color + '"></div>'; }).join('') +
+        (r.short ? '<div title="足りない ' + r.short + '本" style="width:' + pc(r.short) + '%;background:repeating-linear-gradient(45deg,#F04438,#F04438 5px,#FDA29B 5px,#FDA29B 10px)"></div>' : '') +
+        '<div title="余裕なし ' + r.base + '本" style="position:absolute;top:0;bottom:0;left:' + pc(r.base) + '%;border-left:2px dashed #344054"></div>' +
+        '<div title="必要 ' + r.need + '本" style="position:absolute;top:0;bottom:0;left:calc(' + pc(r.need) + '% - 2px);border-left:3px solid #101828"></div></div>';
+      h += '<div class="meta" style="margin-top:3px">必要 <b>' + r.need + '本</b>（予想 ' + r.base + '本＋余裕 ' + (r.need - r.base) + '本）・使える見込み ' + supply + '本：' +
+        segs.map(function (x) { return '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + x.color + ';margin:0 2px 0 6px"></span>' + esc(x.label) + ' ' + x.n; }).join('') + '</div></div>';
+    });
+    h += '<div class="meta" style="display:flex;flex-wrap:wrap;gap:4px 12px;border-top:1px solid var(--line);padding-top:8px">' +
+      BUY_SEG.map(function (x) { return '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + x[2] + ';margin-right:3px"></span>' + x[1] + '</span>'; }).join('') +
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:repeating-linear-gradient(45deg,#F04438,#F04438 3px,#FDA29B 3px,#FDA29B 6px);margin-right:3px"></span>足りない</span>' +
+      '<span>┆ 余裕なしの必要本数</span><span>┃ 余裕込みの必要本数</span></div></div>';
+    // ③ 余裕を変えたら何台か
+    if (B.margins && B.margins.length) {
+      h += '<div class="lbl2">余裕を変えると（買う台数）</div><table class="t"><tr><th>余裕</th><th>G2</th><th>G3</th><th>戻りを数えないと<br>G2・G3</th></tr>' +
+        B.margins.map(function (x) {
+          return '<tr style="' + (x.cur ? 'background:#EFF8FF;font-weight:700' : '') + '"><td>' + x.m + '%' + (x.cur ? '（今）' : '') + '</td><td class="n">' + x.g2 + '台</td><td class="n">' + x.g3 + '台</td><td class="n">' + x.g2n + '・' + x.g3n + '台</td></tr>';
+        }).join('') + '</table><div class="note">余裕は「設定」シートの「仕入れの余裕（%）」で変えられます。「戻りを数えないと」＝来月の戻りが月の後半に届く場合、月の前半を今ある分でまかなうときの台数</div>';
+    }
+    if (B.guessed) h += '<div class="note">※検査の記録がまだ少ないので、歩留まりは目安（使用可能 55%・半年 30%）で計算しています</div>';
+    h += '<div class="note">未計測・回収待ち・到着待ち・来月の戻りは、検査の歩留まりをかけた「使える見込み」の本数です。回収待ち＝修理で外して、まだ店に届いていない電池（' + (B.collectUnits || 0) + '台）。到着待ち＝予備登録した仕入れ（' + (B.buyingUnits || 0) + '台）</div>' +
+      '<a class="btn sub" href="#/inv/suppliers" style="display:block;text-align:center;text-decoration:none">仕入先の成績を見る</a>';
+    return h;
+  }
   function renderStats() {
     var d = stData;
     if (d.empty) { $('main').innerHTML = '<div class="empty">受注のデータがありません</div>'; return; }
@@ -896,17 +947,8 @@
       '<div class="tile"><div class="v">' + d.fyPrev.n + '<small>件</small></div><div class="k">' + d.fyPrev.fy + '年度の実績<br>売上 ' + yen(d.fyPrev.sales) + '</div></div>' +
       '<div class="tile"><div class="v">' + yen(d.fyNow.all || 0).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fyNow.fy + '年度 全部の売上<br>修理 ' + yen(d.fyNow.sales) + '・その他 ' + yen(d.fyNow.other || 0) + '・ジャンク ' + yen(d.fyNow.junk || 0) + '</div></div>' +
       '<div class="tile"><div class="v">' + yen(d.price).replace('万円', '<small>万円</small>') + '</div><div class="k">平均単価（直近6か月）</div></div></div>';
-    // 仕入れの目安
-    if (d.buy) {
-      html += '<div class="h2">来月の仕入れの目安</div>' + d.buy.lines.map(function (l) { return '<div class="advice' + (/^【仕入れる台数/.test(l) ? ' mid' : '') + '">' + esc(l) + '</div>'; }).join('');
-      if (d.buy.rows) html += d.buy.rows.map(function (r) {
-        var parts = [['今ある', r.have], ['未計測から', r.pend], ['回収待ちから', r.collect], ['到着待ちから', r.buying], ['来月の戻りから', r.nextRet], ['使用可能の余りから', r.fromUsable || 0]].filter(function (x) { return x[1]; });
-        return '<div class="card"><div class="row1"><span class="no">' + esc(r.label) + '</span><span class="date" style="' + (r.short ? 'color:#B42318;font-weight:700' : '') + '">' + (r.short ? r.short + '本 足りない' + (r.units ? '（約' + r.units + '台）' : '') : '足りる') + '</span></div>' +
-          '<div class="meta">必要 ' + r.need + '本（余裕2割込み）　←　' + (parts.length ? parts.map(function (x) { return x[0] + ' ' + x[1]; }).join('＋') : 'なし') + '</div>' +
-          (r.unitsNoRet > r.units ? '<div class="meta">来月の戻りを数えないと ' + r.shortNoRet + '本 足りない（約' + r.unitsNoRet + '台）</div>' : '') + '</div>';
-      }).join('') + '<div class="note">「未計測から」「回収待ちから」「到着待ちから」「来月の戻りから」は、検査の歩留まりをかけた、使える見込みの本数です。回収待ち＝修理で外して、まだ店に届いていない電池（' + (d.buy.collectUnits || 0) + '台）。到着待ち＝予備登録した仕入れ（' + (d.buy.buyingUnits || 0) + '台）</div>' +
-        '<a class="btn sub" href="#/inv/suppliers" style="display:block;text-align:center;text-decoration:none">仕入先の成績を見る</a>';
-    }
+    // 仕入れの目安（ひと目でわかる形：台数 → 棚ごとのバー → 余裕を変えたら）
+    if (d.buy) html += buyGuideHtml(d.buy);
     // グラフ：直近24か月＋12か月先
     var past = d.months.filter(function (m) { return m.ym < d.thisYm; }).slice(-12); // 直近12か月＋今月＋12か月先
     var itemsN = past.map(function (m) { return { ym: m.ym, kind: 'act', v: m.n, tip: m.ym.replace('-', '年') + '月　' + m.n + '件（再修理 ' + m.re + '件）' }; });
@@ -1280,6 +1322,7 @@
     var full = d.pct >= 100;
     var html = '<div class="head"><div class="big">' + esc(d.no) + '　' + esc(d.name) + '</div>' +
       '<div class="meta">' + esc(d.date) + (d.time ? ' ' + esc(d.time) + '〜' : '') + ' <button type="button" class="mini" data-redate="1">日程を変更</button>　' + esc([d.model, d.need ? d.need + '本' : '', d.grade].filter(Boolean).join('・')) + (d.rerepair || d.kind === 'その他' ? '' : ' <button type="button" class="mini" data-replan="1">保証プランを変える</button>') + '</div>' +
+      (d.staffAll ? '<div class="meta">修理担当：<b>' + esc(d.staff || '未定') + '</b> <button type="button" class="mini" data-restaff="1">担当を変える</button></div>' : '') +
       '<div class="chips"><span class="chip kind">' + esc(d.kind) + '</span><span class="chip ' + (full ? 'done' : 'state') + '">' + esc(d.state) + '</span>' +
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
@@ -1498,6 +1541,40 @@
   });
 
   // ---- 保証プランを変える（受注シートのグレード・金額・保証期限日） ----
+  // ---- 修理担当を変える ----
+  function staffSheet(all, cur) {
+    return new Promise(function (resolve) {
+      var sel = String(cur || '').split(/[・,、\s]+/).filter(Boolean);
+      var bg = document.createElement('div');
+      bg.className = 'sheet-bg';
+      var draw = function () {
+        bg.innerHTML = '<div class="sheet"><p><b>修理担当</b>（何人でも。もう一度押すと外れます）</p><div class="seg wrap">' +
+          all.map(function (n) { return '<button type="button" data-stf="' + esc(n) + '"' + (sel.indexOf(n) >= 0 ? ' class="on"' : '') + '>' + esc(n) + '</button>'; }).join('') +
+          '</div><div class="two" style="margin-top:12px"><button data-a="0">やめる</button><button class="danger" data-a="1">決める</button></div></div>';
+      };
+      draw();
+      bg.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-stf]'), a = e.target.getAttribute('data-a');
+        if (b) { var n = b.getAttribute('data-stf'), i = sel.indexOf(n); if (i >= 0) sel.splice(i, 1); else sel.push(n); draw(); return; }
+        if (e.target === bg || a === '0') { bg.remove(); resolve(null); return; }
+        if (a === '1') { bg.remove(); resolve(sel.join('・')); }
+      });
+      document.body.appendChild(bg);
+    });
+  }
+  document.addEventListener('click', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0 || !e.target.closest('[data-restaff]')) return;
+    var key = current.key;
+    staffSheet(current.staffAll || [], current.staff).then(function (s) {
+      if (s === null || s === (current.staff || '')) return;
+      loading(true);
+      return call('orderStaff', { key: key, staff: s }).then(function (d) {
+        if (current && current.key === key) { current = d; renderOrder(false); }
+        okToast((d.notes || []).join('。'));
+      });
+    }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+  });
+
   function replanSheet(v) {
     return new Promise(function (resolve) {
       var sel = v.grade, amt = String(v.amount || ''), touched = false;
@@ -2884,7 +2961,7 @@
   // ============================================================
   var nf = null, nForm = null, nResult = null, nLookT = null, nLookSeq = 0, nFindT = null, nIdx = null, nIdxAt = 0;
   function nfReset() {
-    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false };
+    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false, staff: [] };
   }
   function openNew() {
     setNav('#/list', '#/list');
@@ -2925,7 +3002,18 @@
     html += '<label class="f" for="nTime">開始時刻（わかれば）</label><input class="f" id="nTime" type="time" step="900">';
     html += '<div class="lbl2">店舗 <span class="req">必須</span></div>' + nSeg('store', d.stores, nf.store);
     html += '<div class="lbl2">修理区分</div>' + nSeg('kubun', d.kubun, nf.kubun);
-    html += '<label class="f" for="nModel">車種型式</label><input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="例：ZVW30"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
+    if (d.staff && d.staff.length) html += '<div class="lbl2">修理担当（何人でも。もう一度押すと外れます）</div><div class="seg wrap" id="nStaff">' +
+      d.staff.map(function (n) { return '<button type="button" data-nstaff="' + esc(n) + '"' + (nf.staff.indexOf(n) >= 0 ? ' class="on"' : '') + '>' + esc(n) + '</button>'; }).join('') + '</div>';
+    html += '<div class="lbl2">車種型式（よく出る車種）</div>';
+    if (d.modelsTop && d.modelsTop.length) html += '<div class="seg wrap" id="nModelBtns">' + d.modelsTop.map(function (x) {
+      var g = nGroup(x.model), nm = g !== null && d.prices ? String(d.prices.groups[g] || '').replace(/など$/, '') : '';
+      return '<button type="button" data-nmodel="' + esc(x.model) + '" style="line-height:1.2">' + esc(x.model) + (nm ? '<small style="display:block;font-size:11px;font-weight:400;opacity:.75">' + esc(nm) + '</small>' : '') + '</button>';
+    }).join('') + '</div>';
+    html += '<select class="f" id="nModelSel"><option value="">ほかの車種を一覧から選ぶ</option>' + d.models.map(function (m) {
+      var g = nGroup(m), nm = g !== null && d.prices ? String(d.prices.groups[g] || '').replace(/など$/, '') : '';
+      return '<option value="' + esc(m) + '">' + esc(m + (nm ? '　' + nm : '')) + '</option>';
+    }).join('') + '</select>';
+    html += '<input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="一覧にない車種は、ここに入力（例：ZVW30）"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
     html += '<div class="lbl2">グレード</div>' + nSeg('grade', d.grades, nf.grade);
     html += '<div data-not="re"><label class="f" for="nAmount">金額（税込・円）</label><input class="f" id="nAmount" type="number" inputmode="numeric"><div class="note" id="nPrice"></div>';
     html += '<div class="lbl2">支払方法（決まっていなければ空欄。もう一度押すと外れます）</div>' + nSeg('payment', d.payments, nf.payment) + '</div>';
@@ -2945,6 +3033,7 @@
     $('nTel').addEventListener('input', function () { clearTimeout(nLookT); nLookT = setTimeout(nLookup, 700); });
     $('nTel').addEventListener('change', nLookup);
     $('nModel').addEventListener('input', nPrice);
+    $('nModelSel').addEventListener('change', function () { if (this.value) { $('nModel').value = this.value; nPrice(); } });
     $('nAmount').addEventListener('input', function () { if (String(this.value) !== String(nf.autoAmount)) nf.autoAmount = null; });
     $('nHold').addEventListener('change', function () { $('nDate').disabled = this.checked; });
     $('nParentNo').addEventListener('input', function () { if (this.value.trim()) { nf.parentKey = ''; nf.parent = null; nRenderParents(); } });
@@ -2970,7 +3059,15 @@
     });
     return best;
   }
+  /** 車種のボタン：入っている車種のボタンを押した状態に */
+  function nModelMark() {
+    var box = $('nModelBtns'); if (!box) return;
+    var v = nModelKey(nVal('nModel'));
+    box.querySelectorAll('[data-nmodel]').forEach(function (b) { b.classList.toggle('on', !!v && nModelKey(b.getAttribute('data-nmodel')) === v); });
+    var sel = $('nModelSel'); if (sel && sel.value && nModelKey(sel.value) !== v) sel.value = '';
+  }
   function nPrice() {
+    nModelMark();
     var el = $('nPrice'); if (!el || nf.kind === '再修理') return;
     var P = nForm.prices;
     if (!P || nf.kind === 'その他' || !nf.grade || !nf.store) { el.textContent = (P && nf.kind !== 'その他') ? '店舗・車種・グレードを入れると、料金表の金額が出ます' : ''; return; }
@@ -2996,6 +3093,7 @@
     Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
   }
   function nLookup() {
+    if (!$('nLook')) return; // 登録したあと（入力の画面がもうない）
     var tel = nDigits(nVal('nTel'));
     if (tel.length < 10 || tel === nf.lookTel) { if (tel.length < 10) { nf.look = null; nf.lookTel = ''; $('nLook').innerHTML = ''; nRenderParents(); } return; }
     nf.lookTel = tel;
@@ -3139,6 +3237,7 @@
     if (!nf.grade && o.grade && nForm.grades.indexOf(o.grade) >= 0) { nf.grade = o.grade; nSetSeg('grade', o.grade); }
     var st = o.store === '大橋' ? 'インター' : o.store; // 福岡大橋店はインター店に移転
     if (!nf.store && st && nForm.stores.indexOf(st) >= 0) { nf.store = st; nSetSeg('store', st); nAutoKubun(); }
+    nPrice();
     nRenderParents();
   }
   function renderLook(r) {
@@ -3171,6 +3270,7 @@
       content: nVal('nContent'), contact: nVal('nContact'), zip: nVal('nZip'), address: nVal('nAddr'), birth: nVal('nBirth'),
       mileage: nVal('nMile'), referral: nVal('nRef'), parentKey: nf.parentKey, parent: nVal('nParentNo'), note: nVal('nNote'),
       reReason: nf.kind === '再修理' && $('nReReason') ? $('nReReason').value : '',
+      staff: (nf.staff || []).join('・'),
     };
   }
   function nSave(force) {
@@ -3220,6 +3320,8 @@
       if (name === 'store' || name === 'grade') nPrice();
       return;
     }
+    if ((t = e.target.closest('[data-nmodel]'))) { $('nModel').value = t.getAttribute('data-nmodel'); nPrice(); return; }
+    if ((t = e.target.closest('[data-nstaff]'))) { var sn = t.getAttribute('data-nstaff'), si = nf.staff.indexOf(sn); if (si >= 0) nf.staff.splice(si, 1); else nf.staff.push(sn); t.classList.toggle('on', si < 0); return; }
     if ((t = e.target.closest('[data-npar]'))) { nPickParent(t.getAttribute('data-npar')); return; }
     if ((t = e.target.closest('[data-ncus]'))) { nPickCustomer(Number(t.getAttribute('data-ncus'))); return; }
     if ((t = e.target.closest('[data-nexp]'))) { nf.showExpired = !nf.showExpired; nFindRender(); nRenderParents(); return; }
