@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-14d';
+  var SCREEN_VERSION = '2026-11-14e';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2607,14 +2607,57 @@
       renderCntAdj();
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
+
+  // 本数の入れ方：ジャンク用 → 再販用ユニット は「1台の本数 × 台数」だけ。ほかの再販用ユニットは本数か台数。それ以外は本数だけ
+  function caMode() {
+    var f = $('caFrom') ? $('caFrom').value : '', t = $('caTo') ? $('caTo').value : '';
+    if (f === 'ジャンク' && t === '再販用ユニット') return 'units';
+    return f === '再販用ユニット' || t === '再販用ユニット' ? 'both' : 'n';
+  }
+  function caSizes() {
+    var a = [28, 20];
+    ((ca.rs && ca.rs.list) || []).forEach(function (x) { var k = Number(x.per); if (k > 0 && a.indexOf(k) < 0) a.push(k); });
+    return a.sort(function (x, y) { return y - x; });
+  }
+  function caCalcText() {
+    var per = Number(ca.per) || 0, u = Number(($('caUnits') || {}).value) || 0, have = ca.now['ジャンク'] || 0;
+    if (!per || !u) return '台数を入れると本数が出ます（ジャンク用は今 ' + have + '本）';
+    var n = per * u;
+    return per + '本 × ' + u + '台 ＝ ' + n + '本' + (n > have ? '　※ジャンク用は今 ' + have + '本です' : '　（ジャンク用 ' + have + '本 → ' + (have - n) + '本）');
+  }
+  function caQtyHtml() {
+    var m = caMode();
+    if (!ca.per) ca.per = 28;
+    if (m === 'units') {
+      var sz = caSizes(), other = sz.indexOf(Number(ca.per)) < 0;
+      return '<div class="lbl2">1台の本数</div><div class="seg">' + sz.map(function (k) { return '<button type="button" data-caper="' + k + '"' + (Number(ca.per) === k ? ' class="on"' : '') + '>' + k + '本</button>'; }).join('') +
+        '<button type="button" data-caper="other"' + (other ? ' class="on"' : '') + '>ほか</button></div>' +
+        (other || ca.perOther ? '<input class="f" type="number" inputmode="numeric" id="caPerOther" placeholder="1台の本数" value="' + (other ? esc(String(ca.per)) : '') + '">' : '') +
+        '<div class="lbl2">台数</div><input class="f" type="number" inputmode="numeric" id="caUnits" placeholder="何台組んだか">' +
+        '<div class="panel" id="caCalc">' + esc(caCalcText()) + '</div><div class="note">再販用ユニットの内訳（' + esc(String(ca.per)) + '本のユニット）の台数も増えます</div>';
+    }
+    var h = '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="caN">';
+    if (m === 'both') h += '<div class="lbl2">台数で入れるとき</div><div class="note">「1台の本数」と「台数」を入れると、本数は自動で（例：28本×2台＝56本）。再販用ユニットの内訳の台数も増える・減ります</div>' +
+      '<div style="display:flex;gap:8px;align-items:center"><input class="f" type="number" inputmode="numeric" id="caPer" placeholder="1台の本数" style="flex:1"><span>×</span><input class="f" type="number" inputmode="numeric" id="caUnits" placeholder="台数" style="flex:1"></div>';
+    return h;
+  }
+  document.addEventListener('change', function (e) {
+    if (location.hash !== '#/inv/cadj' || !e.target || (e.target.id !== 'caFrom' && e.target.id !== 'caTo')) return;
+    var box = $('caQty'); if (!box) return;
+    box.innerHTML = caQtyHtml();
+    if (caMode() === 'units' && $('caWhy') && !$('caWhy').value.trim()) $('caWhy').value = '再販用ユニットに組んだ';
+  });
+  document.addEventListener('input', function (e) {
+    if (location.hash !== '#/inv/cadj' || !e.target) return;
+    if (e.target.id === 'caPerOther') ca.per = Number(e.target.value) || '';
+    if ((e.target.id === 'caUnits' || e.target.id === 'caPerOther') && $('caCalc')) $('caCalc').textContent = caCalcText();
+  });
   function renderCntAdj() {
     var opts = function (sel, outside) { return '<option value="">' + outside + '</option>' + ca.ids.map(function (id) { return '<option value="' + esc(id) + '">' + esc(cntLabel(id)) + '（' + (ca.now[id] || 0) + '）</option>'; }).join(''); };
     var html = '<div class="h2">その他の出し入れ</div><div class="note">ヤフオク・ズベイルさんへの販売、再販用ユニットに組んだ、廃棄など、修理以外で本数が動いたとき</div>';
     html += '<div class="lbl2">どこから</div><select class="f" id="caFrom">' + opts('', '（外から入った）') + '</select>';
     html += '<div class="lbl2">どこへ</div><select class="f" id="caTo">' + opts('', '（外へ出した）') + '</select>';
-    html += '<div class="lbl2">本数</div><input class="f" type="number" inputmode="numeric" id="caN">';
-    html += '<div class="lbl2">再販用ユニットに入れる・出すとき（台数で）</div><div class="note">「1台の本数」と「台数」を入れると、本数は自動で（例：28本×2台＝56本）。再販用ユニットの内訳の台数も増える・減ります</div>' +
-      '<div style="display:flex;gap:8px;align-items:center"><input class="f" type="number" inputmode="numeric" id="caPer" placeholder="1台の本数" style="flex:1"><span>×</span><input class="f" type="number" inputmode="numeric" id="caUnits" placeholder="台数" style="flex:1"></div>';
+    html += '<div id="caQty">' + caQtyHtml() + '</div>';
     html += '<div class="lbl2">理由</div><div class="seg">' + ['ヤフオクで販売', 'ズベイルさんへ', '再販用ユニットに組んだ', '廃棄', 'その他'].map(function (r) { return '<button data-careason="' + r + '">' + r + '</button>'; }).join('') + '</div><input class="f" id="caWhy" placeholder="理由（上から選ぶか書く）">';
     html += '<button class="btn" data-camove="1">この本数を動かす</button>';
     html += '<div class="h2">本数の棚卸し（数えた本数に合わせる）</div><div class="note">数えた本数を入れたところだけ合わせます（空欄はそのまま）。差は「本数の動き」に「棚卸し」で残ります</div><table class="t">';
@@ -2681,15 +2724,25 @@
     }
     if (h === '#/inv/cadj') {
       if ((t = e.target.closest('[data-careason]'))) { $('caWhy').value = t.getAttribute('data-careason'); return; }
+      if ((t = e.target.closest('[data-caper]'))) {
+        var v = t.getAttribute('data-caper'), un0 = ($('caUnits') || {}).value || '';
+        if (v === 'other') { ca.perOther = true; ca.per = ''; } else { ca.perOther = false; ca.per = Number(v); }
+        $('caQty').innerHTML = caQtyHtml(); if ($('caUnits')) $('caUnits').value = un0; if ($('caCalc')) $('caCalc').textContent = caCalcText();
+        if (v === 'other' && $('caPerOther')) $('caPerOther').focus();
+        return;
+      }
       if ((t = e.target.closest('[data-camove]'))) {
-        var p = { from: $('caFrom').value, to: $('caTo').value, n: $('caN').value, reason: $('caWhy').value, per: $('caPer').value, units: $('caUnits').value };
+        var unitsMode = caMode() === 'units';
+        var p = { from: $('caFrom').value, to: $('caTo').value, n: ($('caN') || {}).value || '', reason: $('caWhy').value, per: unitsMode ? String(ca.per || '') : ($('caPer') || {}).value || '', units: ($('caUnits') || {}).value || '' };
+        if (unitsMode && !(Number(p.per) > 0)) { toast('1台の本数を選んでください'); return; }
+        if (unitsMode && !(Number(p.units) > 0)) { toast('台数を入れてください'); return; }
         if (!p.from && !p.to) { toast('どこから・どこへを選んでください'); return; }
         var rsSide = p.from === '再販用ユニット' || p.to === '再販用ユニット';
         if (rsSide && Number(p.per) > 0 && Number(p.units) > 0) p.n = String(Number(p.per) * Number(p.units));
         else if (Number(p.per) > 0 || Number(p.units) > 0) { if (!rsSide) { toast('台数で入れるのは、どこから・どこへ に「再販用ユニット」を選んだときだけです'); return; } toast('「1台の本数」と「台数」の両方を入れてください'); return; }
         if (!(Number(p.n) > 0)) { toast('本数を入れてください'); return; }
         if (!p.reason.trim()) { toast('理由を入れてください'); return; }
-        confirmSheet(cntLabel(p.from) + ' → ' + cntLabel(p.to) + '　' + p.n + '本（' + p.reason + '）', '動かす').then(function (ok) {
+        confirmSheet(cntLabel(p.from) + ' → ' + cntLabel(p.to) + '　' + (Number(p.per) > 0 && Number(p.units) > 0 ? p.per + '本×' + p.units + '台＝' : '') + p.n + '本（' + p.reason + '）', '動かす').then(function (ok) {
           if (!ok) return;
           call('cntMove', p).then(function (d) { ca.now = d.now; if (d.rs) ca.rs = d.rs; invData = null; okToast('動かしました'); if (d.notes && d.notes.length) toast(d.notes.join('／')); renderCntAdj(); }).catch(function (er) { toast(er.message); });
         });
