@@ -311,7 +311,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-15d';
+  var SCREEN_VERSION = '2026-11-16a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -615,7 +615,7 @@
         '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + Math.min(100, o.pct) + '%"></div></div>' +
         '<div class="pct">' + o.pct + '%</div></div>';
     }).join('');
-    html += '<div class="btns two" style="margin-top:18px">' + (me && (me.role === '店長' || me.role === '管理者') ? '<a href="#/stats" class="alt">売上・件数の集計</a><a href="#/profit" class="alt">粗利と品質</a>' : '') + '<a href="#/rere" class="alt">再修理の理由の集計</a><a href="#/hidden" class="alt">アプリに出していない受注</a></div>';
+    html += '<div class="btns two" style="margin-top:18px">' + (me && (me.canStats || me.role === '店長' || me.role === '管理者') ? '<a href="#/stats" class="alt">売上・件数の集計</a><a href="#/profit" class="alt">粗利と品質</a>' : '') + '<a href="#/rere" class="alt">再修理の理由の集計</a><a href="#/hidden" class="alt">アプリに出していない受注</a></div>';
     $('main').innerHTML = html;
     var onTab = document.querySelector('.tabs .tab.on'); if (onTab && onTab.parentNode) onTab.parentNode.scrollLeft = onTab.offsetLeft - 16; // 選んだタブが見えるように
   }
@@ -778,6 +778,16 @@
     if (!t || !pfData || location.hash !== '#/profit') return;
     pfLH = t.getAttribute('data-pflh');
     var y = window.scrollY; renderProfit(); window.scrollTo(0, y);
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-statsall]');
+    if (!t || location.hash !== '#/me') return;
+    var all = t.getAttribute('data-statsall') === '1';
+    confirmSheet(all ? 'スタッフも「売上・件数の集計」「粗利と品質」「入札の目安」「おすすめのプランの金額」を見られるようにしますか？' : '集計・粗利を店長・管理者だけにしますか？', all ? '見せる' : '店長・管理者だけにする').then(function (ok) {
+      if (!ok) return;
+      loading(true);
+      call('setStatsWho', { all: all }).then(function (r) { okToast(r.note); openMe(); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+    });
   });
   function renderProfit() {
     var d = pfData, s = d.settings, L = d.last3, Q = d.quality;
@@ -1983,7 +1993,11 @@
         (L.ledger && L.ledger.duty && L.ledger.duty.need > 0 ? '<div class="meta" style="margin-top:6px;color:' + (L.ledger.duty.level === 'high' ? '#B42318' : '#B54708') + ';font-weight:700">年5日の有休：' + esc(L.ledger.duty.to) + ' までに あと ' + fmtDay(L.ledger.duty.need) + '日</div>' : '') + '</a>';
     }
     if (d.koguchi) html += '<a class="card tap" href="#/kg" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">小口現金</span><span class="date">入れる・見る ›</span></div><div class="meta">修理以外の出金（ガソリン代・文具など）・入金を入れる</div></a>';
-    if (d.role === '店長' || d.role === '管理者') html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a><a href="#/leave" class="alt">みんなの休み</a></div>';
+    var boss = d.role === '店長' || d.role === '管理者';
+    if (boss) html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a><a href="#/leave" class="alt">みんなの休み</a></div>';
+    else if (d.canStats) html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a></div>';
+    if (boss) html += '<div class="card" style="display:flex;align-items:center;gap:10px"><div style="flex:1"><b>集計・粗利をスタッフにも見せる</b><div class="meta">売上・件数の集計、粗利と品質、入札の目安、おすすめのプランの金額</div></div>' +
+      '<button type="button" class="btn' + (d.statsAll ? '' : ' sub') + '" data-statsall="' + (d.statsAll ? '0' : '1') + '" style="width:auto;margin:0;padding:8px 14px">' + (d.statsAll ? '見せている' : '見せていない') + '</button></div>';
     html += '<div class="tabs">' + [['thisMonth', '今月'], ['lastMonth', '先月'], ['fiscal', '今年度']].map(function (t) {
       return '<button class="tab' + (meTab === t[0] ? ' on' : '') + '" data-ptab="' + t[0] + '">' + t[1] + '（' + esc(d.periods[t[0]].label) + '）</button>';
     }).join('') + '</div>';
