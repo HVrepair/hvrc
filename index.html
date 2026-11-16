@@ -209,6 +209,9 @@
   /* 新しい受注 */
   .newbtn { margin: 0 0 12px; text-align: center; text-decoration: none; }
   .req { font-size: 11px; color: #B42318; margin-left: 4px; }
+  .vsline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .vsbtn { padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--text); }
+  .vsbtn.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
   .nrow { display: flex; gap: 10px; align-items: center; }
   .nrow input.f { flex: 1; min-width: 0; }
   .nrow .chk { flex: 0 0 auto; font-size: 15px; display: flex; align-items: center; gap: 6px; }
@@ -360,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16r';
+  var SCREEN_VERSION = '2026-11-16t';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1641,6 +1644,8 @@
       (d.staffAll ? '<div class="meta">修理担当：<b>' + esc(d.staff || '未定') + '</b> <button type="button" class="mini" data-restaff="1">担当を変える</button></div>' : '') +
       (d.mileageCol ? '<div class="meta" id="oMileBox">' + mileHtml(d) + '</div>' : '') +
       (d.plate ? '<div class="meta">車のナンバー：<b>' + esc(d.plate) + '</b></div>' : '') +
+      (d.single ? '<div class="meta vsline">ボルテージセンサー：' + ['あり', 'なし'].map(function (x) { return '<button type="button" class="vsbtn' + (d.vs === x ? ' on' : '') + '" data-ordvs="' + x + '">' + (d.vs === x ? '✓ ' : '') + x + '</button>'; }).join('') +
+        (d.vs ? (d.vs === 'なし' ? '<span class="meta">（なし：配線・冷却ファンの項目は出しません）</span>' : '') : '<span class="exp">　まだ入っていません。押して選んでください</span>') + '</div>' : '') +
       '<div class="chips"><span class="chip kind">' + esc(d.kind) + '</span><span class="chip ' + (full ? 'done' : 'state') + '">' + esc(d.state) + '</span>' +
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
@@ -1668,7 +1673,7 @@
       var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
       if (it.pending) by += '　送信中…';
       html += '<div class="item' + cls + (it.pending ? ' pending' : '') + '" id="it-' + it.id + '">' +
-        '<button class="main" data-item="' + it.id + '"><span class="box">' + mark + '</span><span><div class="lbl">' + esc(it.label) + badge + '</div>' +
+        '<button class="main" data-item="' + it.id + '"><span class="box">' + mark + '</span><span><div class="lbl">' + esc(isPlateItem(it) && current.single ? '車のナンバー（単体販売）' : it.label) + badge + '</div>' +
         (by ? '<div class="by">' + esc(by) + '</div>' : '') + '</span></button>' +
         (it.result ? '' : '<button class="na-btn" data-na="' + it.id + '">該当<br>なし</button>') + '</div>';
       if (openInline === it.id && !it.result) html += inlineHtml(it);
@@ -1809,11 +1814,25 @@
   });
   document.addEventListener('click', function (e) {
     if (!e.target.closest || !current) return;
+    var ov = e.target.closest('[data-ordvs]');
+    if (ov) { // 単体販売：ボルテージセンサーを直す（受注のときに入れたもの。前の版で登録した受注はここで入れる）
+      var vk = current.key, vv = ov.getAttribute('data-ordvs');
+      if (vv === current.vs) return;
+      var keepP = ($('oPlate') || {}).value;
+      loading(true);
+      call('orderPlate', { key: vk, vs: vv }).then(function (r) {
+        if (current && current.key === vk) current = r;
+        okToast((r.notes || [])[0] || '保存しました');
+        renderOrder(false); if ($('oPlate') && keepP !== undefined) $('oPlate').value = keepP;
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
     var pd = e.target.closest('[data-platedone]'), ps = e.target.closest('[data-platesave]');
     if (!pd && !ps) return;
     var k = current.key, v = ($('oPlate') || {}).value || '';
+    var payload = { key: k, plate: v };
     loading(true);
-    call('orderPlate', { key: k, plate: v }).then(function (r) {
+    call('orderPlate', payload).then(function (r) {
       if (current && current.key === k) current = r;
       okToast((r.notes || [])[0] || '保存しました');
       var it = current.items.filter(isPlateItem)[0];
@@ -1827,10 +1846,11 @@
   });
   function isPlateItem(it) { return it && (it.id === 'C21' || /エラー内容と車の傷/.test(String(it.label || ''))); }
   function plateHtml(it) {
-    return '<div class="lbl2">車のナンバー</div><input class="f" id="oPlate" value="' + esc(current.plate || '') + '" placeholder="例：北九州 300 さ 12-34" autocomplete="off">' +
-      '<div class="meta" style="margin:2px 0 8px">受注シートの備考に「ナンバー：…」と書きます。過去の修理をさがすときにも使えます</div>' +
-      '<button class="btn" data-platedone="1">ナンバーを保存して、確認済みにする</button>' +
-      '<button class="btn sub" data-platesave="1" style="margin-top:6px">ナンバーだけ保存（確認はまだ）</button>';
+    var single = !!current.single;
+    return '<div class="lbl2">車のナンバー' + (single ? '（わかれば）' : '') + '</div><input class="f" id="oPlate" value="' + esc(current.plate || '') + '" placeholder="例：北九州 300 さ 12-34" autocomplete="off">' +
+      '<div class="meta" style="margin:2px 0 8px">受注シートの' + (single ? 'AF列（単体販売の備考欄）に「ナンバー：…」' : '備考に「ナンバー：…」') + 'と書きます。過去の修理をさがすときにも使えます</div>' +
+      '<button class="btn" data-platedone="1">保存して、済にする</button>' +
+      '<button class="btn sub" data-platesave="1" style="margin-top:6px">保存だけ（済はまだ）</button>';
   }
   function inlineHtml(it) {
     if (isPhotoItem(it)) return photoHtml(it);
@@ -3821,7 +3841,7 @@
   // ============================================================
   var nf = null, nForm = null, nResult = null, nLookT = null, nLookSeq = 0, nFindT = null, nIdx = null, nIdxAt = 0;
   function nfReset() {
-    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false, staff: [] };
+    nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false, staff: [], vs: '' };
   }
   function openNew() {
     nCalData = null; nCalBusy = '';
@@ -3878,6 +3898,8 @@
     }).join('') + '</select>';
     html += '<input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="一覧にない車種は、ここに入力（例：ZVW30）"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
     html += '<div id="nRank"></div><div class="lbl2">グレード</div>' + nSeg('grade', d.grades, nf.grade) + '<div id="nStock"></div>';
+    html += '<div data-only="single"><div class="lbl2">ボルテージセンサー <span class="req">必須</span>（組み立てで使います）</div>' + nSeg('vs', ['あり', 'なし'], nf.vs) +
+      '<div class="note">受注シートのAF列（単体販売の備考欄）に「ボルテージセンサー：あり／なし」と書きます。「なし」は、チェックリストの配線（C16）・冷却ファン（C17）の項目を出しません</div></div>';
     html += '<div data-not="re"><label class="f" for="nAmount">金額（税込・円）</label><input class="f" id="nAmount" type="number" inputmode="numeric"><div class="note" id="nPrice"></div>';
     html += '<div class="lbl2">支払方法（決まっていなければ空欄。もう一度押すと外れます）</div>' + nSeg('payment', d.payments, nf.payment) + '</div>';
     html += '<div class="note" data-only="re" style="margin-top:12px">金額は0円で登録します（保証期限は元の修理のまま）。工賃・出張費をいただく場合は、売上に入るよう別に「その他」でも登録してください。</div>';
@@ -4229,6 +4251,7 @@
     var re = nf.kind === '再修理';
     Array.prototype.forEach.call(document.querySelectorAll('[data-only="re"]'), function (el) { el.classList.toggle('hidden', !re); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-not="re"]'), function (el) { el.classList.toggle('hidden', re); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-only="single"]'), function (el) { el.classList.toggle('hidden', nf.kind !== '単体販売'); });
     var l = $('nFindLbl'); if (l) l.textContent = re ? '元の修理を探す（お名前の一部・電話番号）' : 'お客様を探す（業者様・リピートの方）';
   }
   // 再修理：元の修理の候補（電話番号で見つかった、再修理でもキャンセルでもない受注）
@@ -4288,6 +4311,7 @@
       mileage: nVal('nMile'), referral: nVal('nRef'), parentKey: nf.parentKey, parent: nVal('nParentNo'), note: nVal('nNote'),
       reReason: nf.kind === '再修理' && $('nReReason') ? $('nReReason').value : '',
       staff: (nf.staff || []).join('・'),
+      vs: nf.kind === '単体販売' ? nf.vs : '',
     };
   }
   function nSave(force) {
@@ -4297,6 +4321,7 @@
     if (!f.store) { toast('店舗を選んでください'); return; }
     if (nf.kind === 'その他' && !f.content) { toast('修理内容を入れてください'); $('nContent').focus(); return; }
     if (nf.kind === '再修理' && !f.parentKey && !f.parent) { toast('元の修理を選んでください'); return; }
+    if (nf.kind === '単体販売' && !f.vs) { toast('ボルテージセンサーの「あり」か「なし」を選んでください'); var vsb = document.querySelector('[data-nseg="vs"]'); if (vsb) vsb.scrollIntoView({ block: 'center' }); return; }
     var go = function () {
       $('nSave').disabled = true;
       loading(true);
