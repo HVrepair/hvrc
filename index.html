@@ -332,7 +332,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16c';
+  var SCREEN_VERSION = '2026-11-16d';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -502,7 +502,7 @@
   }
 
   // ---- 予定（カレンダー） ----
-  var calData = null, calSel = 0, evOpen = false;
+  var calData = null, calSel = 0, calSelNext = 0, evOpen = false, evEdit = '';
   var STORE_COLOR = { '苅田': '#1B2A3A', '行橋': '#1B2A3A', 'インター': '#2563A8', '大橋': '#2563A8', '出張': '#F28C28', '営業': '#2E7D4F' };
   function calColor(o) { return o.kind === '再修理' ? '#B42318' : (STORE_COLOR[o.store] || '#8A8F96'); }
   function openCal(ym) {
@@ -513,7 +513,8 @@
     var same = calData && (!ym || ym === calData.y + '-' + (calData.m < 10 ? '0' : '') + calData.m);
     if (same) renderCal(); else loading(true);
     call('cal', { ym: ym || '' }).then(function (d) {
-      if (!calData || calData.y !== d.y || calData.m !== d.m) calSel = d.today || 0;
+      if (!calData || calData.y !== d.y || calData.m !== d.m) calSel = calSelNext || d.today || 0;
+      calSelNext = 0;
       calData = d; if (!ym) memPut('cal', d);
       if (location.hash.indexOf('#/cal') === 0) renderCal();
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
@@ -595,9 +596,21 @@
       // 修理以外の予定
       var evs = (d.events || {})[calSel] || [];
       html += evs.map(function (ev) {
+        if (evEdit === ev.id) {
+          var opt = function (v) { return '<option' + (ev.store === v ? ' selected' : '') + '>' + v + '</option>'; };
+          return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">予定を直す</span></div>' +
+            '<input class="f" id="eeTitle" value="' + esc(ev.title) + '" placeholder="内容">' +
+            '<div style="display:flex;gap:6px"><input class="f" type="date" id="eeDate" value="' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '" style="flex:1.3;min-width:0">' +
+            '<input class="f" type="time" id="eeTime" value="' + esc(ev.time ? ('0' + ev.time).slice(-5) : '') + '" style="flex:1;min-width:0"></div>' +
+            '<select class="f" id="eeStore"><option value="">店舗（なくても可）</option>' + ['苅田', 'インター', '出張', '営業'].map(opt).join('') + '</select>' +
+            '<input class="f" id="eeMemo" value="' + esc(ev.memo) + '" placeholder="メモ（なくても可）">' +
+            (ev.mine ? '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="eePriv" style="width:22px;height:22px"' + (ev.private ? ' checked' : '') + '> 🔒 自分だけの予定にする</label>' : '') +
+            '<button class="btn" data-eesave="' + esc(ev.id) + '">直す</button><button class="btn sub" data-eeclose="1">やめる</button></div>';
+        }
         return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">' + (ev.private ? '🔒 ' : '') + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
           '<div class="meta">' + esc([ev.store, ev.memo, ev.private ? '自分だけの予定（ほかの人には見えません）' : '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
-          (me && (ev.mine || ev.by === me.name || (!ev.private && (me.role === '店長' || me.role === '管理者'))) ? '<button type="button" class="mini" data-evdel="' + esc(ev.id) + '" style="margin-top:6px">取り消す</button>' : '') + '</div>';
+          (ev.changed ? '<div class="meta" style="font-size:11px">' + esc(ev.changed) + '</div>' : '') +
+          '<div style="margin-top:6px;display:flex;gap:6px"><button type="button" class="mini" data-evedit="' + esc(ev.id) + '">直す</button><button type="button" class="mini" data-evdel="' + esc(ev.id) + '">取り消す</button></div></div>';
       }).join('');
       if (evOpen) {
         html += '<div class="card evc"><div class="row1"><span class="no">' + d.m + '/' + calSel + ' に予定を入れる</span></div>' +
@@ -630,13 +643,27 @@
     if ((t = e.target.closest('[data-calview]'))) { calView = t.getAttribute('data-calview'); try { localStorage.setItem('hv_calview', calView); } catch (er) { /* なくても動く */ } renderCal(); return; }
     if ((t = e.target.closest('.clrow[data-key]'))) { location.hash = '#/order/' + encodeURIComponent(t.getAttribute('data-key')); return; }
     if ((t = e.target.closest('[data-cald]'))) {
-      calSel = Number(t.getAttribute('data-cald')); evOpen = false;
+      calSel = Number(t.getAttribute('data-cald')); evOpen = false; evEdit = '';
       if (calView === 'list') { calView = 'grid'; try { localStorage.setItem('hv_calview', 'grid'); } catch (er) { /* なくても動く */ } }
       renderCal();
       var hd = document.querySelector('.h2'); if (hd && t.closest('.cal')) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    if (e.target.closest('[data-evopen]')) { evOpen = true; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
+    if ((t = e.target.closest('[data-evedit]'))) { evEdit = t.getAttribute('data-evedit'); evOpen = false; renderCal(); var tt = $('eeTitle'); if (tt) tt.focus(); return; }
+    if (e.target.closest('[data-eeclose]')) { evEdit = ''; renderCal(); return; }
+    if ((t = e.target.closest('[data-eesave]'))) {
+      var pe = { id: t.getAttribute('data-eesave'), title: $('eeTitle').value, date: $('eeDate').value, time: $('eeTime').value, store: $('eeStore').value, memo: $('eeMemo').value, private: !!($('eePriv') && $('eePriv').checked) };
+      if (!pe.title.trim()) { toast('内容を入れてください'); return; }
+      loading(true);
+      call('eventEdit', pe).then(function (r) {
+        evEdit = '';
+        if (r.y === calData.y && r.m === calData.m) { calData.events = r.events; var dm = /-(\d{1,2})$/.exec(pe.date); if (dm) calSel = Number(dm[1]); renderCal(); }
+        else { calSelNext = Number(pe.date.slice(8, 10)); location.hash = '#/cal/' + r.y + '-' + (r.m < 10 ? '0' : '') + r.m; }
+        okToast('予定を直しました');
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if (e.target.closest('[data-evopen]')) { evOpen = true; evEdit = ''; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
     if (e.target.closest('[data-evclose]')) { evOpen = false; renderCal(); return; }
     if (e.target.closest('[data-evsave]')) {
       var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked) };
