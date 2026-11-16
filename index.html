@@ -344,7 +344,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16g';
+  var SCREEN_VERSION = '2026-11-16h';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -478,7 +478,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg') { reData = null; stData = null; pfData = null; bidData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg' || location.hash === '#/etc') { reData = null; etcData = null; stData = null; pfData = null; bidData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -509,6 +509,7 @@
     else if (h === '#/inv/junk') openJunk();
     else if (h === '#/rere') openRe();
     else if (h === '#/kg') openKg();
+    else if (h === '#/etc') openEtc();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
   }
@@ -2213,6 +2214,87 @@
     }
   });
 
+  // ---- ETC利用履歴 ----
+  var etcData = null, etcForm = { roads: [], purpose: '', date: '' }, etcOther = false;
+  function openEtc(person, date) {
+    setNav('#/me', '#/me');
+    $('title').textContent = 'ETC利用履歴';
+    if (etcData && !person && !date) renderEtc(); else if (!etcData) loading(true);
+    var p = { person: person || (etcData ? etcData.person : ''), date: date || etcForm.date || '' };
+    return call('etcView', p).then(function (d) { etcData = d; if (!etcForm.date) etcForm.date = d.date; if (location.hash === '#/etc') renderEtc(); })
+      .catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  function etcRead() {
+    if ($('etcDate')) etcForm.date = $('etcDate').value;
+    if ($('etcPurpose')) etcForm.purpose = $('etcPurpose').value;
+    if ($('etcRoadOther')) etcForm.other = $('etcRoadOther').value;
+  }
+  function etcDayLabel(iso) { var a = String(iso || '').split('-').map(Number); if (a.length < 3) return ''; var d = new Date(a[0], a[1] - 1, a[2]); return a[1] + '/' + a[2] + '(' + '日月火水木金土'.charAt(d.getDay()) + ')'; }
+  function renderEtc() {
+    var d = etcData, f = etcForm;
+    var html = '';
+    if (d.people && d.people.length > 1) html += '<div class="seg" style="margin-bottom:8px">' + d.people.map(function (n) { return '<button type="button" data-etcwho="' + esc(n) + '"' + (n === d.person ? ' class="on"' : '') + '>' + esc(n) + (n === d.mine ? '（自分）' : '') + '</button>'; }).join('') + '</div>';
+    html += '<div class="panel"><div class="meta" style="margin-bottom:4px">書き込む先：<b>' + esc(d.file) + '</b></div>' +
+      '<div class="lbl2">使った日</div><input class="f" type="date" id="etcDate" value="' + esc(f.date || d.date) + '" min="' + esc(d.min) + '" max="' + esc(d.today) + '">' +
+      '<div class="lbl2">道路名（2つ以上使ったら全部押す）</div><div class="seg wrap">' + d.roads.map(function (r) { return '<button type="button" data-etcroad="' + esc(r) + '"' + (f.roads.indexOf(r) >= 0 ? ' class="on"' : '') + '>' + (f.roads.indexOf(r) >= 0 ? '✓ ' : '') + esc(r) + '</button>'; }).join('') +
+      '<button type="button" data-etcroad="__other"' + (etcOther ? ' class="on"' : '') + '>ほか</button></div>' +
+      (etcOther ? '<input class="f" id="etcRoadOther" value="' + esc(f.other || '') + '" placeholder="道路名を入力（例：大分自動車道）">' : '') +
+      '<div class="lbl2">使用目的</div>' +
+      (d.suggest.length ? '<div class="meta" style="margin:0 0 4px">押すと入ります（' + esc(etcDayLabel(f.date || d.date)) + ' の修理・予定と、よく使うもの）</div><div class="seg wrap">' + d.suggest.map(function (x) { return '<button type="button" data-etcsug="' + esc(x.text) + '"' + (f.purpose === x.text ? ' class="on"' : '') + ' title="' + esc(x.why) + '">' + esc(x.text) + (x.why && x.why !== 'よく使う' ? '<small style="display:block;font-size:10px;opacity:.75">' + esc(x.why) + '</small>' : '') + '</button>'; }).join('') + '</div>' : '') +
+      '<input class="f" id="etcPurpose" value="' + esc(f.purpose || '') + '" placeholder="例：旭ヶ丘商事　修理／苅田行橋店ーインター店">' +
+      '<button class="btn" data-etcsave="1">ETC利用履歴に入れる</button></div>';
+    html += '<div class="h2">' + esc(d.person) + 'さんのETC利用履歴（今月・先月）</div>';
+    html += d.list.length ? '<table class="t"><tr><th>日</th><th>道路名・使用目的</th><th></th></tr>' + d.list.map(function (x) {
+      var off = x.state === '取消';
+      var ex = off ? (x.excel === '消した' ? 'Excelからも消しました' : x.excel === '済' ? 'Excelからは次に消します' : '取消') : x.excel === '済' ? 'Excelに書きました' + (x.excelAt ? ' ' + x.excelAt : '') : x.excel === 'ファイルなし' ? '<b style="color:#B42318">Excelのファイルが見つかりません</b>' : 'Excelにはまだ（PCが次に書きます）';
+      return '<tr style="' + (off ? 'opacity:.5;text-decoration:line-through' : '') + '"><td style="white-space:nowrap">' + esc(x.dateLabel) + '</td><td>' + esc(x.roads.join('・')) + '<div class="meta">' + esc(x.purpose) + '</div><div class="meta" style="text-decoration:none">' + ex + (x.by && x.by !== d.person ? '・入れた人 ' + esc(x.by) : '') + '</div></td><td>' +
+        (x.canDel ? '<button type="button" class="mini" style="white-space:nowrap" data-etcdel="' + esc(x.id) + '">取消</button>' : '') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="empty">まだありません</div>';
+    html += '<div class="note">入れた分は、お店のPCが 8:50・12:35・19:05 に「' + esc(d.file) + '」のその月のシート（例「2026 11」）のいちばん下に書きます。道路を2つ以上選んだときは、2行目から道路名だけの行になります。取り消すと、次に PC が動いたときに Excel の行も消します。' + (d.last ? '<br>PCが最後に書いた日時：' + esc(d.last) : '') + '</div>';
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('change', function (e) {
+    if (location.hash !== '#/etc' || !etcData || !e.target || e.target.id !== 'etcDate') return;
+    etcRead(); openEtc(etcData.person, etcForm.date); // 日を変えたら、その日の修理・予定から候補を出し直す
+  });
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/etc' || !etcData) return;
+    var t;
+    if ((t = e.target.closest('[data-etcwho]'))) { etcRead(); etcForm.roads = []; etcForm.purpose = ''; openEtc(t.getAttribute('data-etcwho'), etcForm.date); return; }
+    if ((t = e.target.closest('[data-etcroad]'))) {
+      etcRead();
+      var r = t.getAttribute('data-etcroad');
+      if (r === '__other') etcOther = !etcOther;
+      else { var i = etcForm.roads.indexOf(r); if (i >= 0) etcForm.roads.splice(i, 1); else etcForm.roads.push(r); }
+      renderEtc(); return;
+    }
+    if ((t = e.target.closest('[data-etcsug]'))) { etcRead(); etcForm.purpose = t.getAttribute('data-etcsug'); renderEtc(); return; }
+    if ((t = e.target.closest('[data-etcsave]'))) {
+      etcRead();
+      var f = etcForm, roads = f.roads.slice();
+      if (etcOther && String(f.other || '').trim()) roads.push(String(f.other).trim());
+      if (!roads.length) { toast('道路名を選んでください'); return; }
+      if (!String(f.purpose || '').trim()) { toast('使用目的を入れてください'); return; }
+      var dd = f.date || etcData.date;
+      confirmSheet(etcDayLabel(dd) + '　' + roads.join('・') + '\n' + f.purpose + '\n「' + etcData.file + '」に入れますか？', '入れる').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('etcAdd', { person: etcData.person, date: dd, roads: roads, purpose: f.purpose }).then(function (d) {
+          etcData = d; etcForm = { roads: [], purpose: '', date: dd }; etcOther = false; renderEtc(); okToast(d.note);
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
+    if ((t = e.target.closest('[data-etcdel]'))) {
+      var id = t.getAttribute('data-etcdel');
+      confirmSheet('このETC利用履歴を取り消しますか？（Excel に書いてあれば、その行も消します）', '取り消す').then(function (ok) {
+        if (!ok) return;
+        etcRead(); loading(true);
+        call('etcDel', { id: id, person: etcData.person }).then(function (d) { etcData = d; renderEtc(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+    }
+  });
+
   function openMe() {
     setNav('#/me', '');
     $('title').textContent = 'マイページ';
@@ -2232,6 +2314,7 @@
         '<div class="pbar' + (L.left < 0 ? ' over' : '') + '" style="margin-top:6px"><div style="width:' + Math.min(100, L.allowance ? L.kokyu / L.allowance * 100 : 0) + '%"></div></div>' +
         (L.ledger && L.ledger.duty && L.ledger.duty.need > 0 ? '<div class="meta" style="margin-top:6px;color:' + (L.ledger.duty.level === 'high' ? '#B42318' : '#B54708') + ';font-weight:700">年5日の有休：' + esc(L.ledger.duty.to) + ' までに あと ' + fmtDay(L.ledger.duty.need) + '日</div>' : '') + '</a>';
     }
+    if (d.etc) html += '<a class="card tap" href="#/etc" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">ETC利用履歴</span><span class="date">入れる・見る ›</span></div><div class="meta">高速道路を使った日・道路名・使用目的を入れる（Excel の「ETC利用履歴」に自動で書きます）</div></a>';
     if (d.koguchi) html += '<a class="card tap" href="#/kg" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">小口現金</span><span class="date">入れる・見る ›</span></div><div class="meta">修理以外の出金（ガソリン代・文具など）・入金を入れる</div></a>';
     var boss = d.role === '店長' || d.role === '管理者';
     if (boss) html += '<div class="btns two"><a href="#/stats">売上・件数の集計</a><a href="#/profit">粗利と品質</a><a href="#/leave" class="alt">みんなの休み</a></div>';
