@@ -345,7 +345,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16j';
+  var SCREEN_VERSION = '2026-11-16k';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -931,8 +931,8 @@
     var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。金額は税別。どのユニットから何本：アプリの充電開始の記録 → なければ受注シートの「バッテリー内容」（ユニットの数で均等に分ける）</div>';
     if (s.missing.length) html += '<div class="advice mid">「設定」シートに、まだ値が入っていない項目があります：' + esc(s.missing.join('・')) + '。入れると粗利がより正確になります（入れたら「更新」）</div>';
     html += '<div class="tiles">' +
-      '<div class="tile"><div class="v">' + (L.per === null ? '―' : yen(L.per).replace('万円', '<small>万円</small>')) + '</div><div class="k">1件あたりの粗利・税別<br>（直近3か月）' + (L.perWith !== null && L.perWith !== undefined && L.perWith !== L.per ? '<br>回収込み ' + yen(L.perWith) : '') + '</div></div>' +
-      '<div class="tile"><div class="v">' + pct(L.rate) + '</div><div class="k">粗利率（直近3か月）' + (L.rateWith !== null && L.rateWith !== undefined && L.rateWith !== L.rate ? '<br>回収込み ' + pct(L.rateWith) : '') + '</div></div>' +
+      '<div class="tile"><div class="v">' + (L.per === null ? '―' : yen(L.per).replace('万円', '<small>万円</small>')) + '</div><div class="k">1件あたりの粗利・税別<br>（直近3か月）' + (L.perWith !== null && L.perWith !== undefined && L.perWith !== L.per ? '<br>実質粗利 ' + yen(L.perWith) : '') + '</div></div>' +
+      '<div class="tile"><div class="v">' + pct(L.rate) + '</div><div class="k">粗利率（直近3か月）' + (L.rateWith !== null && L.rateWith !== undefined && L.rateWith !== L.rate ? '<br>実質 ' + pct(L.rateWith) : '') + '</div></div>' +
       '<div class="tile"><div class="v">' + L.cover + '<small>%</small></div><div class="k">計算できた修理（直近3か月）<br>' + L.n + '件／' + L.all + '件</div></div>' +
       '<div class="tile"><div class="v">' + yen(L.reCost).replace('万円', '<small>万円</small>') + '</div><div class="k">再修理の費用・税別（直近3か月）</div></div></div>';
     if (!d.months.length) html += '<div class="empty">まだ計算できる修理がありません。アプリの充電開始か、受注シートの「バッテリー内容」（G2-2[HVB616(3/28),…]）がある修理から計算します</div>';
@@ -945,34 +945,34 @@
       }
       items = items.some(function (x) { return x.v > 0; }) ? items : [];
       if (items.length) html += '<div class="h2">1件あたりの粗利（月ごと・税別）</div>' + stChart('粗利', items, '万円');
-      html += '<div class="h2">月ごとの粗利（税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">粗利<br><small>修理だけ</small></th><th style="text-align:right">戻りの<br>回収</th><th style="text-align:right">回収込み<br><small>率</small></th><th style="text-align:right">再修理</th></tr>' +
+      html += '<div class="h2">月ごとの粗利（税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">粗利</th><th style="text-align:right">＋戻り分</th><th style="text-align:right">＝実質<br>粗利</th><th style="text-align:right">再修理</th></tr>' +
         d.months.slice().reverse().slice(0, 12).map(function (m) {
           var cw = m.gpWith !== undefined ? m.gpWith : m.gp;
           return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small>' + (m.past ? '<br><small>シート' + m.past + '</small>' : '') + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.gp) + '<br><small>' + pct(m.rate) + '</small></td><td class="n">' + (m.credit ? '+' + yen(m.credit) : '―') + (m.pend ? '<br><small style="color:#667085">見込み ' + yen(m.pend) + '</small>' : '') + '</td><td class="n"><b>' + yen(cw) + '</b><br><small>' + pct(m.rateWith !== undefined ? m.rateWith : m.rate) + '</small></td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
         }).join('') + '</table>';
-      html += '<div class="h2">原価の内訳（月ごと・税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">原価</th><th style="text-align:right">モジュール<br><small>うち戻り</small></th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
-        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.mod) + (m.retYen ? '<br><small>' + yen(m.retYen) + '</small>' : '') + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
+      html += '<div class="h2">原価の内訳（月ごと・税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">原価</th><th style="text-align:right">モジュール</th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
+        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.mod) + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
       html += '<div class="note">件数は「計算できた件数／その月の修理の件数」。再修理は0円の修理で、費用は元の修理の保証の費用として別に出しています。' +
         'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額（税別）は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。' +
-        (s.retPrice ? '<b>修理の戻り</b>（番号の頭 ' + esc(s.ret) + '）は、次の修理の仕入れとして1本 G2 ' + yen(s.retPrice.G2) + '（' + esc(s.retPrice.fromG2) + '）・G3 ' + yen(s.retPrice.G3) + '（' + esc(s.retPrice.fromG3) + '）で原価に入れ、同じ金額をその戻りが出た元の修理に「戻りの回収」として足しています（全体では同じ金額の足し引きなので、会社全体の粗利は変わりません）。「見込み」は、まだ棚にある使える戻りの分。「設定」の「戻りの1本の値段（税別）」で決めた値段にもできます。' : '修理の戻りは0円（番号の頭 ' + esc(s.ret) + '）。') + '新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
+        '<b>修理の戻り</b>（番号の頭 ' + esc(s.ret) + '）は0円。' + (s.retPrice ? '戻りが次の修理で使われたら、その本数 × 1本 G2 ' + yen(s.retPrice.G2) + '（' + esc(s.retPrice.fromG2) + '）・G3 ' + yen(s.retPrice.G3) + '（' + esc(s.retPrice.fromG3) + '）を、戻りが出た元の修理の「戻り分」として足し、「粗利＋戻り分＝実質粗利」で出しています（使った修理は0円のままなので、実質粗利を全部足すと会社全体の粗利より多くなります。1件ごと・プランごとの見方です）。「見込み」は、まだ棚にある使える戻りの分。1本の値段は「設定」の「戻りの1本の値段（税別）」で決めることもできます。' : '') + '新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
         '「シート」は受注シートのバッテリー内容から計算した件数（' + d.est.past + '件）。' +
         'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' をその月の修理件数で割る。' +
         '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>';
       var tbl = function (title, list) {
         if (!list || !list.length) return '';
-        return '<div class="h2">' + title + '</div><table class="t tight"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利<br><small>修理だけ</small></th><th style="text-align:right">回収<br>込み</th><th style="text-align:right">保証の<br>費用</th></tr>' +
+        return '<div class="h2">' + title + '</div><table class="t tight"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">実質<br>粗利</th><th style="text-align:right">保証の<br>費用</th></tr>' +
           list.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td class="n">' + x.n + '</td><td class="n">' + yen(x.sales) + '</td><td class="n">' + yen(x.cost) + '</td><td class="n">' + yen(x.gp) + '<br><small>' + pct(x.rate) + '</small></td><td class="n"><b>' + yen(x.gpWith !== undefined ? x.gpWith : x.gp) + '</b></td><td class="n">' + (x.reCost ? yen(x.reCost) : '―') + '</td></tr>'; }).join('') + '</table>';
       };
-      html += '<div class="note" style="margin-top:18px">ここから下は直近12か月・1件あたりの平均・税別（保証の費用＝その修理から出た再修理の費用。回収込み＝粗利＋その修理の戻りが次の修理で使われた分）</div>';
+      html += '<div class="note" style="margin-top:18px">ここから下は直近12か月・1件あたりの平均・税別（保証の費用＝その修理から出た再修理の費用。実質粗利＝粗利＋戻り分（その修理の戻りが次の修理で使われた分））</div>';
       html += tbl('グレード', d.by.grade) + tbl('来店・出張・単体など', d.by.kind) + tbl('車種（上位12）', d.by.model);
       var lhList = pfLH === 'high' ? (d.high || []) : d.low;
-      if (d.low.length) html += '<div class="h2">粗利が' + (pfLH === 'high' ? '多かった修理（直近6か月・上から10件）' : '少なかった修理（直近6か月・下から10件）') + '</div><div class="meta" style="margin:-4px 0 4px">回収込みの粗利（税別）の順</div>' +
+      if (d.low.length) html += '<div class="h2">粗利が' + (pfLH === 'high' ? '多かった修理（直近6か月・上から10件）' : '少なかった修理（直近6か月・下から10件）') + '</div><div class="meta" style="margin:-4px 0 4px">実質粗利（税別）の順</div>' +
         '<div class="seg" style="margin:4px 0 8px"><button type="button" data-pflh="low"' + (pfLH !== 'high' ? ' class="on"' : '') + '>少なかった修理</button><button type="button" data-pflh="high"' + (pfLH === 'high' ? ' class="on"' : '') + '>多かった修理</button></div>' + lhList.map(function (x) {
         return '<a class="card" href="#/order/' + encodeURIComponent(x.key) + '" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + esc(x.no) + '</span><span class="date">' + esc(x.date) + '</span></div>' +
           '<div class="meta">' + esc(x.model + '・' + x.grade + '・' + x.kind) + (x.past ? '（受注シートのバッテリー内容から）' : '') + '</div>' +
           '<div class="meta">売上 ' + yen(x.sales) + '　モジュール ' + yen(x.mod) + '（' + x.n + '本' + (x.est ? '・うち見込み ' + x.est + '本' : '') + '）　バスバー ' + yen(x.bus) + (x.ship ? '　送料 ' + yen(x.ship) : '') + (x.labor ? '　人件費 ' + yen(x.labor) : '') + '</div>' +
-          '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b>' + (x.rate !== null && x.rate !== undefined ? '（' + x.rate + '%）' : '') + (x.reCost ? '　再修理の費用 ' + yen(x.reCost) : '') + (x.retN ? '　<small>（戻り ' + x.retN + '本 ' + yen(x.retYen) + ' を原価に）</small>' : '') + '</div>' +
-          (x.credit || x.pend ? '<div class="meta" style="color:#067647">戻りの回収 +' + yen(x.credit) + (x.creditN ? '（' + x.creditN + '本）' : '') + ' → <b>回収込み ' + yen(x.gpWith) + '</b>' + (x.rateWith !== null && x.rateWith !== undefined ? '（' + x.rateWith + '%）' : '') + (x.pend ? '　<span style="color:#667085">見込み +' + yen(x.pend) + '</span>' : '') + '</div>' : '') + '</a>';
+          '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b>' + (x.rate !== null && x.rate !== undefined ? '（' + x.rate + '%）' : '') + (x.reCost ? '　再修理の費用 ' + yen(x.reCost) : '') + (x.retN ? '　<small>（戻り ' + x.retN + '本は0円）</small>' : '') + '</div>' +
+          (x.credit || x.pend ? '<div class="meta" style="color:#067647">＋戻り分 ' + yen(x.credit) + (x.creditN ? '（' + x.creditN + '本）' : '') + ' ＝ <b>実質粗利 ' + yen(x.gpWith) + '</b>' + (x.rateWith !== null && x.rateWith !== undefined ? '（' + x.rateWith + '%）' : '') + (x.pend ? '　<span style="color:#667085">見込み +' + yen(x.pend) + '</span>' : '') + '</div>' : '') + '</a>';
       }).join('');
     }
     // ---- 品質 ----
@@ -1594,21 +1594,21 @@
     var rate = function (x) { return x.rate === null || x.rate === undefined ? '' : '（' + x.rate + '%）'; };
     var a = p.actual || p.now, pl = p.plan, cr = p.credit || null;
     var cy = cr ? cr.yen : 0;
-    var head = (pl ? '予定 ' + y(pl.gp) + rate(pl) : '') + (pl && a ? ' → ' : '') + (a ? (p.actual ? '実績 ' : '今の見込み ') + y(a.gp) + rate(a) : '') + (cy && a ? '／回収込み ' + y(a.gp + cy) : '') + '（税別）';
+    var head = (pl ? '予定 ' + y(pl.gp) + rate(pl) : '') + (pl && a ? ' → ' : '') + (a ? (p.actual ? '実績 ' : '今の見込み ') + y(a.gp) + rate(a) : '') + (cy && a ? '／実質粗利 ' + y(a.gp + cy) : '') + '（税別）';
     var body = '';
     if (pl) body += '<div class="meta"><b>予定</b>（充電開始のとき・' + esc(pl.at) + '）：モジュール ' + y(pl.mod) + '（' + pl.n + '本）・バスバー ' + y(pl.bus) + (pl.ship ? '・送料 ' + y(pl.ship) : '') + (pl.labor ? '・人件費 ' + y(pl.labor) : '') + '<br>' + esc(pl.text) + '</div>';
     if (a) body += '<div class="meta" style="margin-top:6px"><b>' + (p.actual ? '実績' : '今の見込み') + '</b>：売上 ' + y(a.sales) + '（税別）− モジュール ' + y(a.mod) + '（' + a.n + '本）− バスバー ' + y(a.bus) + '（' + a.busN + '枚' + (a.busEst ? '・平均で見込み' : '') + '）' +
       (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + ' ＝ ' + y(a.gp) + '<br>' +
       esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : l.ret ? '（戻りの値段）' : ''); }).join('／')) +
-      (a.retN ? '<br>修理の戻り ' + a.retN + '本は、1本 G2 ' + y(a.retPrice.G2) + '・G3 ' + y(a.retPrice.G3) + '（購入ユニットの使える1本あたりの平均）で原価に入れています。その分は、戻りが出た元の修理に「戻りの回収」として足します' : '') +
+      (a.retN ? '<br>修理の戻り ' + a.retN + '本は0円です。この分（1本 G2 ' + y(a.retPrice.G2) + '・G3 ' + y(a.retPrice.G3) + ' 相当＝' + y(a.retYen) + '）は、戻りが出た元の修理の「戻り分」になります' : '') +
       (p.actual ? '<br>「修理の粗利」シートに記録' + (p.recAt ? '（' + esc(p.recAt) + '）' : '') + '。バスバーの枚数・人件費（その月の件数）が変わると直ります' : '') + '</div>';
     if (cr && (cr.yen || cr.pend) && a) {
-      body += '<div class="meta" style="margin-top:6px;padding:6px 8px;background:#ECFDF3;border-radius:8px"><b>戻りの回収</b>（この修理で外した電池が、次の修理の仕入れになった分・税別）<br>' +
-        (cr.yen ? '使われた分：<b>+' + y(cr.yen) + '</b>（' + cr.n + '本：' + esc(cr.uses.map(function (u) { return u.no + ' ' + u.n + '本'; }).join('・')) + '）<br>' : 'まだ次の修理には使われていません<br>') +
-        '<b>回収込みの粗利 ' + y(a.gp + cr.yen) + '</b>' + (a.sales ? '（' + Math.round((a.gp + cr.yen) / a.sales * 1000) / 10 + '%）' : '') +
-        (cr.pend ? '<br>回収見込み：棚に使える分 ' + cr.pend.use + '本（約 ' + y(cr.pend.yen) + '）' + (cr.pend.unmeasured ? '・未計測 ' + cr.pend.unmeasured + '本' : '') + (cr.pend.junk ? '・ジャンク ' + cr.pend.junk + '本' : '') + '。使われたら回収に入ります' : '') + '</div>';
+      body += '<div class="meta" style="margin-top:6px;padding:6px 8px;background:#ECFDF3;border-radius:8px"><b>戻り分</b>（この修理で外した電池が、次の修理で使われた分・税別）<br>' +
+        '粗利 ' + y(a.gp) + ' ＋ 戻り分 ' + y(cr.yen) + ' ＝ <b>実質粗利 ' + y(a.gp + cr.yen) + '</b>' + (a.sales ? '（' + Math.round((a.gp + cr.yen) / a.sales * 1000) / 10 + '%）' : '') +
+        (cr.yen ? '<br>使われた修理：' + esc(cr.uses.map(function (u) { return u.no + ' ' + u.n + '本'; }).join('・')) + '（' + cr.n + '本）' : '<br>まだ次の修理には使われていません') +
+        (cr.pend ? '<br>見込み：棚に使える分 ' + cr.pend.use + '本（約 ' + y(cr.pend.yen) + '）' + (cr.pend.unmeasured ? '・未計測 ' + cr.pend.unmeasured + '本' : '') + (cr.pend.junk ? '・ジャンク ' + cr.pend.junk + '本' : '') + '。使われたら戻り分に入ります' : '') + '</div>';
     } else if (p.retOut && a && p.actual) {
-      body += '<div class="meta" style="margin-top:6px">戻りの回収：外した電池がまだ届いていないか、検査前です（使える分が次の修理に使われたら、ここに足されます）</div>';
+      body += '<div class="meta" style="margin-top:6px">戻り分：外した電池がまだ届いていないか、検査前です（使える分が次の修理に使われたら、ここに足されます）</div>';
     }
     return '<details class="panel" style="margin:0 0 10px"><summary><b>粗利</b>　' + esc(head) + '</summary>' + body + '</details>';
   }
@@ -2625,7 +2625,7 @@
       (used.length ? '<div class="meta">出したモジュール：' + esc(used.join('／')) + '</div>' : '') +
       (add.length ? '<div class="meta">これから出す：' + esc(add.join('／')) + '</div>' : '') +
       (e.est + addEst ? '<div class="meta">値段がわからないユニットは平均 ' + yenF(p.avgMod) + '／本で見込み</div>' : '') +
-      (e.retN || cRows.some(function (r) { var u = String(r.lot || '').split('|')[0]; return u && p.ret && p.ret[u] && Number(r.n) > 0; }) ? '<div class="meta">修理の戻りは1本 G2 ' + yenF((p.retPrice || {}).G2) + '・G3 ' + yenF((p.retPrice || {}).G3) + '（税別。購入ユニットの使える1本あたりの平均）で原価に入れます。その分は、戻りが出た元の修理に「戻りの回収」として足します</div>' : '') +
+      (e.retN || cRows.some(function (r) { var u = String(r.lot || '').split('|')[0]; return u && p.ret && p.ret[u] && Number(r.n) > 0; }) ? '<div class="meta">修理の戻りは0円です。使った本数 × 1本 G2 ' + yenF((p.retPrice || {}).G2) + '・G3 ' + yenF((p.retPrice || {}).G3) + '（税別）は、戻りが出た元の修理の「戻り分」になります</div>' : '') +
       (e.missing && e.missing.length ? '<div class="meta">「設定」にまだない値：' + esc(e.missing.join('・')) + '</div>' : '') +
       '<div class="meta">充電開始を押すと「修理の粗利」シートに予定として記録し、修理日が過ぎたら実績も記録します（店長・管理者だけに表示）</div>';
   }
@@ -3867,7 +3867,7 @@
         '<span style="flex:1;min-width:0"><b style="font-size:' + (top ? '17px' : '15px') + '">' + esc(x.grade) + '</b>' + (top ? ' <span class="chip" style="background:#2E7D4F;color:#fff">いちばんおすすめ</span>' : '') +
         '<br><small style="color:#475467">' + (nRank.yen ? '粗利 平均 ' + nRankYen(x.avg) + ' × ' + x.n + '件 ＝ ' + nRankYen(x.total) : x.n + '件') + (x.few ? '（まだ少ない）' : '') + '</small></span></div>';
     }).join('');
-    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。（粗利＋戻りの回収 − 再修理の費用）の平均 × 件数 の大きい順・税別' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
+    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。（実質粗利 − 再修理の費用）の平均 × 件数 の大きい順・税別' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
     box.innerHTML = h;
     if (seg) list.forEach(function (x) {
       var b = Array.prototype.filter.call(seg.querySelectorAll('button'), function (el) { return el.getAttribute('data-v') === x.grade; })[0];
