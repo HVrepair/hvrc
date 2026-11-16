@@ -263,6 +263,7 @@
   .sdtitle { font-weight: 800; font-size: 16px; color: #1F3A5F; } .sdsum { font-size: 13px; margin: 4px 0 6px; line-height: 1.6; }
   .sdh { font-weight: 700; font-size: 13px; margin: 10px 0 2px; border-left: 4px solid #1F3A5F; padding-left: 6px; }
   .sdt { width: 100%; } .sdt td, .sdt th { font-size: 12px; padding: 4px 3px; } .sdt td.n, .sdt th { white-space: nowrap; } .sdt td:first-child { min-width: 4.5em; } .sdt .pc { display: block; font-size: 10.5px; color: #667085; font-weight: 400; } .sdt tr.sum td { font-weight: 800; border-top: 2px solid #1F3A5F; }
+  .t.tight td, .t.tight th { font-size: 12px; padding: 5px 3px; } .t.tight td.n { white-space: nowrap; } .t.tight th { line-height: 1.25; }
   .lvlegend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; margin: 4px 0; } .lvlegend .lvc { font-size: 12px; line-height: 18px; padding: 0 6px; }
   .lvc b { margin-right: 2px; }
   .dc .evb.pv, .card.evc.pv { border-left-color: #667085; } .dc .evb.pv { background: #EEF0F3; color: #344054; }
@@ -344,7 +345,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16h';
+  var SCREEN_VERSION = '2026-11-16j';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -930,10 +931,10 @@
     var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。金額は税別。どのユニットから何本：アプリの充電開始の記録 → なければ受注シートの「バッテリー内容」（ユニットの数で均等に分ける）</div>';
     if (s.missing.length) html += '<div class="advice mid">「設定」シートに、まだ値が入っていない項目があります：' + esc(s.missing.join('・')) + '。入れると粗利がより正確になります（入れたら「更新」）</div>';
     html += '<div class="tiles">' +
-      '<div class="tile"><div class="v">' + (L.per === null ? '―' : yen(L.per).replace('万円', '<small>万円</small>')) + '</div><div class="k">1件あたりの粗利<br>（直近3か月）</div></div>' +
-      '<div class="tile"><div class="v">' + pct(L.rate) + '</div><div class="k">粗利率（直近3か月）</div></div>' +
+      '<div class="tile"><div class="v">' + (L.per === null ? '―' : yen(L.per).replace('万円', '<small>万円</small>')) + '</div><div class="k">1件あたりの粗利・税別<br>（直近3か月）' + (L.perWith !== null && L.perWith !== undefined && L.perWith !== L.per ? '<br>回収込み ' + yen(L.perWith) : '') + '</div></div>' +
+      '<div class="tile"><div class="v">' + pct(L.rate) + '</div><div class="k">粗利率（直近3か月）' + (L.rateWith !== null && L.rateWith !== undefined && L.rateWith !== L.rate ? '<br>回収込み ' + pct(L.rateWith) : '') + '</div></div>' +
       '<div class="tile"><div class="v">' + L.cover + '<small>%</small></div><div class="k">計算できた修理（直近3か月）<br>' + L.n + '件／' + L.all + '件</div></div>' +
-      '<div class="tile"><div class="v">' + yen(L.reCost).replace('万円', '<small>万円</small>') + '</div><div class="k">再修理の費用（直近3か月）</div></div></div>';
+      '<div class="tile"><div class="v">' + yen(L.reCost).replace('万円', '<small>万円</small>') + '</div><div class="k">再修理の費用・税別（直近3か月）</div></div></div>';
     if (!d.months.length) html += '<div class="empty">まだ計算できる修理がありません。アプリの充電開始か、受注シートの「バッテリー内容」（G2-2[HVB616(3/28),…]）がある修理から計算します</div>';
     else {
       var byYm = {}; d.months.forEach(function (m) { byYm[m.ym] = m; });
@@ -943,32 +944,35 @@
         items.push(m && m.per !== null ? { ym: ym, kind: m.cur ? 'cur' : 'act', v: Math.max(0, m.per), f: Math.max(0, m.per), tip: ym.replace('-', '年') + '月　1件あたり ' + yen(m.per) + '（' + m.n + '件・粗利率 ' + pct(m.rate) + '）' } : { ym: ym, kind: 'act', v: 0, tip: ym.replace('-', '年') + '月　まだ計算できる修理がありません' });
       }
       items = items.some(function (x) { return x.v > 0; }) ? items : [];
-      if (items.length) html += '<div class="h2">1件あたりの粗利（月ごと）</div>' + stChart('粗利', items, '万円');
-      html += '<div class="h2">月ごとの粗利</div><table class="t"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">率</th><th style="text-align:right">再修理</th></tr>' +
+      if (items.length) html += '<div class="h2">1件あたりの粗利（月ごと・税別）</div>' + stChart('粗利', items, '万円');
+      html += '<div class="h2">月ごとの粗利（税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">粗利<br><small>修理だけ</small></th><th style="text-align:right">戻りの<br>回収</th><th style="text-align:right">回収込み<br><small>率</small></th><th style="text-align:right">再修理</th></tr>' +
         d.months.slice().reverse().slice(0, 12).map(function (m) {
-          return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small>' + (m.past ? '<br><small>シート' + m.past + '</small>' : '') + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.gp) + '</td><td class="n">' + pct(m.rate) + '</td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
+          var cw = m.gpWith !== undefined ? m.gpWith : m.gp;
+          return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small>' + (m.past ? '<br><small>シート' + m.past + '</small>' : '') + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.gp) + '<br><small>' + pct(m.rate) + '</small></td><td class="n">' + (m.credit ? '+' + yen(m.credit) : '―') + (m.pend ? '<br><small style="color:#667085">見込み ' + yen(m.pend) + '</small>' : '') + '</td><td class="n"><b>' + yen(cw) + '</b><br><small>' + pct(m.rateWith !== undefined ? m.rateWith : m.rate) + '</small></td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
         }).join('') + '</table>';
-      html += '<div class="h2">原価の内訳（月ごと）</div><table class="t"><tr><th>月</th><th style="text-align:right">モジュール</th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
-        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.mod) + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
+      html += '<div class="h2">原価の内訳（月ごと・税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">原価</th><th style="text-align:right">モジュール<br><small>うち戻り</small></th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
+        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.mod) + (m.retYen ? '<br><small>' + yen(m.retYen) + '</small>' : '') + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
       html += '<div class="note">件数は「計算できた件数／その月の修理の件数」。再修理は0円の修理で、費用は元の修理の保証の費用として別に出しています。' +
-        'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。修理の戻りは0円（番号の頭 ' + esc(s.ret) + '）、新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
+        'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額（税別）は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。' +
+        (s.retPrice ? '<b>修理の戻り</b>（番号の頭 ' + esc(s.ret) + '）は、次の修理の仕入れとして1本 G2 ' + yen(s.retPrice.G2) + '（' + esc(s.retPrice.fromG2) + '）・G3 ' + yen(s.retPrice.G3) + '（' + esc(s.retPrice.fromG3) + '）で原価に入れ、同じ金額をその戻りが出た元の修理に「戻りの回収」として足しています（全体では同じ金額の足し引きなので、会社全体の粗利は変わりません）。「見込み」は、まだ棚にある使える戻りの分。「設定」の「戻りの1本の値段（税別）」で決めた値段にもできます。' : '修理の戻りは0円（番号の頭 ' + esc(s.ret) + '）。') + '新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
         '「シート」は受注シートのバッテリー内容から計算した件数（' + d.est.past + '件）。' +
         'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' をその月の修理件数で割る。' +
         '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>';
       var tbl = function (title, list) {
         if (!list || !list.length) return '';
-        return '<div class="h2">' + title + '</div><table class="t"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利</th><th style="text-align:right">率</th><th style="text-align:right">保証の<br>費用</th></tr>' +
-          list.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td class="n">' + x.n + '</td><td class="n">' + yen(x.sales) + '</td><td class="n">' + yen(x.cost) + '</td><td class="n">' + yen(x.gp) + '</td><td class="n">' + pct(x.rate) + '</td><td class="n">' + (x.reCost ? yen(x.reCost) : '―') + '</td></tr>'; }).join('') + '</table>';
+        return '<div class="h2">' + title + '</div><table class="t tight"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">原価</th><th style="text-align:right">粗利<br><small>修理だけ</small></th><th style="text-align:right">回収<br>込み</th><th style="text-align:right">保証の<br>費用</th></tr>' +
+          list.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td class="n">' + x.n + '</td><td class="n">' + yen(x.sales) + '</td><td class="n">' + yen(x.cost) + '</td><td class="n">' + yen(x.gp) + '<br><small>' + pct(x.rate) + '</small></td><td class="n"><b>' + yen(x.gpWith !== undefined ? x.gpWith : x.gp) + '</b></td><td class="n">' + (x.reCost ? yen(x.reCost) : '―') + '</td></tr>'; }).join('') + '</table>';
       };
-      html += '<div class="note" style="margin-top:18px">ここから下は直近12か月・1件あたりの平均（保証の費用＝その修理から出た再修理の費用）</div>';
+      html += '<div class="note" style="margin-top:18px">ここから下は直近12か月・1件あたりの平均・税別（保証の費用＝その修理から出た再修理の費用。回収込み＝粗利＋その修理の戻りが次の修理で使われた分）</div>';
       html += tbl('グレード', d.by.grade) + tbl('来店・出張・単体など', d.by.kind) + tbl('車種（上位12）', d.by.model);
       var lhList = pfLH === 'high' ? (d.high || []) : d.low;
-      if (d.low.length) html += '<div class="h2">粗利が' + (pfLH === 'high' ? '多かった修理（直近6か月・上から10件）' : '少なかった修理（直近6か月・下から10件）') + '</div>' +
+      if (d.low.length) html += '<div class="h2">粗利が' + (pfLH === 'high' ? '多かった修理（直近6か月・上から10件）' : '少なかった修理（直近6か月・下から10件）') + '</div><div class="meta" style="margin:-4px 0 4px">回収込みの粗利（税別）の順</div>' +
         '<div class="seg" style="margin:4px 0 8px"><button type="button" data-pflh="low"' + (pfLH !== 'high' ? ' class="on"' : '') + '>少なかった修理</button><button type="button" data-pflh="high"' + (pfLH === 'high' ? ' class="on"' : '') + '>多かった修理</button></div>' + lhList.map(function (x) {
         return '<a class="card" href="#/order/' + encodeURIComponent(x.key) + '" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + esc(x.no) + '</span><span class="date">' + esc(x.date) + '</span></div>' +
           '<div class="meta">' + esc(x.model + '・' + x.grade + '・' + x.kind) + (x.past ? '（受注シートのバッテリー内容から）' : '') + '</div>' +
           '<div class="meta">売上 ' + yen(x.sales) + '　モジュール ' + yen(x.mod) + '（' + x.n + '本' + (x.est ? '・うち見込み ' + x.est + '本' : '') + '）　バスバー ' + yen(x.bus) + (x.ship ? '　送料 ' + yen(x.ship) : '') + (x.labor ? '　人件費 ' + yen(x.labor) : '') + '</div>' +
-          '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b>' + (x.rate !== null && x.rate !== undefined ? '（' + x.rate + '%）' : '') + (x.reCost ? '　再修理の費用 ' + yen(x.reCost) : '') + '</div></a>';
+          '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b>' + (x.rate !== null && x.rate !== undefined ? '（' + x.rate + '%）' : '') + (x.reCost ? '　再修理の費用 ' + yen(x.reCost) : '') + (x.retN ? '　<small>（戻り ' + x.retN + '本 ' + yen(x.retYen) + ' を原価に）</small>' : '') + '</div>' +
+          (x.credit || x.pend ? '<div class="meta" style="color:#067647">戻りの回収 +' + yen(x.credit) + (x.creditN ? '（' + x.creditN + '本）' : '') + ' → <b>回収込み ' + yen(x.gpWith) + '</b>' + (x.rateWith !== null && x.rateWith !== undefined ? '（' + x.rateWith + '%）' : '') + (x.pend ? '　<span style="color:#667085">見込み +' + yen(x.pend) + '</span>' : '') + '</div>' : '') + '</a>';
       }).join('');
     }
     // ---- 品質 ----
@@ -1063,20 +1067,20 @@
       return '<div style="border:2px solid #1F3A5F;border-radius:14px;padding:10px;text-align:center;background:#F5F8FC">' +
         '<div style="font-size:13px;color:#475467">' + esc(x.fam) + ' のユニット（' + main + '本）</div>' +
         '<div style="font-size:26px;font-weight:800;line-height:1.2;color:#1F3A5F">' + bidYen(row.perMod, main).toLocaleString() + '<small style="font-size:13px">円まで</small></div>' +
-        '<div style="font-size:11px;color:#667085">' + (row.cur ? '今の粗利率 ' + row.r + '% を保つ上限<br>（＝今の平均の買値。これより高いと率が下がる）' : '粗利率 ' + row.r + '% のとき' + (nowBuy ? '<br>今の平均の買値 ' + nowBuy.toLocaleString() + '円' : '')) + '</div>' +
-        '<div style="font-size:12px;margin-top:4px;color:#B42318">赤字の境め ' + bidYen(x.even, main).toLocaleString() + '円</div>' +
+        '<div style="font-size:11px;color:#667085">' + (row.cur ? '今の粗利率 ' + row.r + '% を保つ上限<br>（＝今の平均の買値。これより高いと率が下がる）' : '粗利率 ' + row.r + '% のとき' + (nowBuy ? '<br>今の平均の買値 ' + nowBuy.toLocaleString() + '円（税込）' : '')) + '</div>' +
+        '<div style="font-size:12px;margin-top:4px;color:#B42318">赤字の境め ' + bidYen(x.even, main).toLocaleString() + '円（税込）</div>' +
         (x.sizes.length > 1 ? '<div style="font-size:12px;color:#475467;margin-top:2px">' + x.sizes.slice(1).map(function (k) { return k + '本 ' + bidYen(row.perMod, k).toLocaleString() + '円'; }).join('・') + '</div>' : '') +
         (x.few || x.guessed ? '<div style="font-size:11px;color:#B54708;margin-top:2px">※記録が少ないので目安</div>' : '') + '</div>';
     }).join('') + '</div>';
     h += '<details id="bidDet" style="margin:2px 0 10px"' + (bidOpen ? ' open' : '') + '><summary style="cursor:pointer;color:#1F3A5F;font-size:14px;padding:6px 0">粗利率ごとの上限・計算のもと</summary>';
     L.forEach(function (x) {
-      h += '<div style="font-weight:700;margin:10px 0 4px">' + esc(x.fam) + '</div><table class="t"><tr><th>粗利率</th>' + x.sizes.map(function (k) { return '<th>' + k + '本</th>'; }).join('') + '</tr>' +
+      h += '<div style="font-weight:700;margin:10px 0 4px">' + esc(x.fam) + '<span class="meta" style="font-weight:400">（1台の上限・税込）</span></div><table class="t"><tr><th>粗利率</th>' + x.sizes.map(function (k) { return '<th>' + k + '本</th>'; }).join('') + '</tr>' +
         x.rows.map(function (r) {
           return '<tr style="' + (r.cur ? 'background:#EFF8FF;font-weight:700' : '') + '"><td>' + r.r + '%' + (r.cur ? '（今）' : '') + '</td>' + x.sizes.map(function (k) { return '<td class="n">' + bidYen(r.perMod, k).toLocaleString() + '円</td>'; }).join('') + '</tr>';
         }).join('') +
         '<tr><td>0%（赤字の境め）</td>' + x.sizes.map(function (k) { return '<td class="n">' + bidYen(x.even, k).toLocaleString() + '円</td>'; }).join('') + '</tr></table>';
       h += '<div class="meta">直近' + x.months + 'か月の ' + esc(x.fam) + ' だけで組んだ修理 ' + x.repairs + '件：売上 平均 ' + Number(x.S).toLocaleString() + '円（税別）・モジュール以外の費用 ' + Number(x.O).toLocaleString() + '円（バスバー・送料・人件費）・1件 ' + x.n + '本。' +
-        '検査で使える ' + x.use + '%・ジャンク ' + x.junk + '%' + (x.guessed ? '（検査の記録が少ないので目安）' : '（購入ユニット ' + x.inspUnits + '台）') + (x.junkVal ? '・ジャンク1本 ' + x.junkVal + '円で売れる分を足しています' : '') + '</div>';
+        '検査で使える ' + x.use + '%・ジャンク ' + x.junk + '%' + (x.guessed ? '（検査の記録が少ないので目安）' : '（購入ユニット ' + x.inspUnits + '台）') + (x.junkVal ? '・ジャンク1本 ' + x.junkVal + '円（税別）で売れる分を足しています' : '') + '</div>';
     });
     h += '<div class="note">送料も入れた金額で見てください（落札額＋送料がこの金額まで）。ここの粗利率は、検査で使えなかった分も原価に入れた率なので、「粗利と品質」の画面の率より少し低く出ます。中身の良いユニット（使える割合が高い）なら、これより高くても合います' +
       (bidData.missing && bidData.missing.length ? '。※「設定」の ' + bidData.missing.join('・') + ' が 0 なので、その分だけ高めに出ています' : '') + '</div></details>';
@@ -1148,7 +1152,7 @@
         list.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td class="n">' + x.n + '件<span class="pc">' + Math.round(x.n / tn * 100) + '%</span></td><td class="n">' + yenFull(x.sales) + '</td><td class="n">' + (x.n ? yenFull(x.sales / x.n) : '―') + '</td></tr>'; }).join('') +
         (total ? '<tr class="sum"><td>合計</td><td class="n">' + total.n + '件</td><td class="n">' + yenFull(total.sales) + '</td><td class="n">' + (total.n ? yenFull(total.sales / total.n) : '―') + '</td></tr>' : '') + '</table>';
     };
-    var h = '<div class="stbox"><div class="sdtitle">' + Number(p[0]) + '年' + Number(p[1]) + '月の内訳' + (m.ym === d.thisYm ? '（今月：これからの予約も入っています）' : '') + '</div>';
+    var h = '<div class="stbox"><div class="sdtitle">' + Number(p[0]) + '年' + Number(p[1]) + '月の内訳（' + (d.tax || '税込') + '）' + (m.ym === d.thisYm ? '（今月：これからの予約も入っています）' : '') + '</div>';
     h += '<div class="sdsum">修理 <b>' + m.n + '件 ' + yenFull(m.sales) + '</b>' + (m.other ? '　その他(A) ' + m.other + '件 ' + yenFull(m.otherSales) : '') + (m.junk ? '　ジャンク ' + yenFull(m.junk) : '') + '　<b>全部 ' + yenFull(m.all !== undefined ? m.all : m.sales) + '</b>' + (m.re ? '<br><span class="meta">再修理（0円・件数に入れていない） ' + m.re + '件</span>' : '') + '</div>';
     h += tbl('店舗（営業＝業販）', D.store, { n: m.n, sales: m.sales });
     h += tbl('来店・出張・単体など', D.kind);
@@ -1171,16 +1175,17 @@
     var d = stData;
     if (d.empty) { $('main').innerHTML = '<div class="empty">受注のデータがありません</div>'; return; }
     var a0 = d.ahead[0], a1 = d.ahead[1];
-    var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。件数・売上・予想は「修理（バッテリー交換）」の分。キャンセル・再修理（0円）は入れていません。「全部の売上」＝修理＋その他（A番号）＋ジャンクの売却</div>';
+    var TX = d.tax || '税込', TXL = '（' + TX + '）';
+    var html = '<div class="note">' + esc(d.at) + ' 時点（3時間ごとに読み直し。すぐ読み直すときは「更新」）。<b>この画面の金額は' + TX + '</b>（受注シートの金額のまま。ジャンクの売却も税込）。件数・売上・予想は「修理（バッテリー交換）」の分。キャンセル・再修理（0円）は入れていません。「全部の売上」＝修理＋その他（A番号）＋ジャンクの売却</div>';
     html += '<a class="btn sub" href="#/profit" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">粗利と品質（再修理のふり返り）を見る</a>';
     html += '<div class="tiles">' +
       '<div class="tile"><div class="v">' + a0.booked + '<small>件</small></div><div class="k">今月（' + ymLabel(a0.ym) + '）の予約・実績<br>着地見込み 約' + Math.round(a0.landing) + '件</div></div>' +
-      '<div class="tile"><div class="v">' + Math.round(a1.n) + '<small>件</small></div><div class="k">来月（' + ymLabel(a1.ym) + '）の予想 ' + a1.lo + '〜' + a1.hi + '件<br>売上 約' + yen(a1.sales) + '</div></div>' +
-      '<div class="tile"><div class="v">' + d.fyNow.landN + '<small>件</small></div><div class="k">' + d.fyNow.fy + '年度の着地見込み<br>売上 約' + yen(d.fyNow.landSales) + '</div></div>' +
-      '<div class="tile"><div class="v">' + d.fyNext.n + '<small>件</small></div><div class="k">' + d.fyNext.fy + '年度の予想<br>売上 約' + yen(d.fyNext.sales) + '</div></div>' +
-      '<div class="tile"><div class="v">' + d.fyPrev.n + '<small>件</small></div><div class="k">' + d.fyPrev.fy + '年度の実績<br>売上 ' + yen(d.fyPrev.sales) + '</div></div>' +
-      '<div class="tile"><div class="v">' + yen(d.fyNow.all || 0).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fyNow.fy + '年度 全部の売上<br>修理 ' + yen(d.fyNow.sales) + '・その他 ' + yen(d.fyNow.other || 0) + '・ジャンク ' + yen(d.fyNow.junk || 0) + '</div></div>' +
-      '<div class="tile"><div class="v">' + yen(d.price).replace('万円', '<small>万円</small>') + '</div><div class="k">平均単価（直近6か月）</div></div></div>';
+      '<div class="tile"><div class="v">' + Math.round(a1.n) + '<small>件</small></div><div class="k">来月（' + ymLabel(a1.ym) + '）の予想 ' + a1.lo + '〜' + a1.hi + '件<br>売上 約' + yen(a1.sales) + TXL + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyNow.landN + '<small>件</small></div><div class="k">' + d.fyNow.fy + '年度の着地見込み<br>売上 約' + yen(d.fyNow.landSales) + TXL + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyNext.n + '<small>件</small></div><div class="k">' + d.fyNext.fy + '年度の予想<br>売上 約' + yen(d.fyNext.sales) + TXL + '</div></div>' +
+      '<div class="tile"><div class="v">' + d.fyPrev.n + '<small>件</small></div><div class="k">' + d.fyPrev.fy + '年度の実績<br>売上 ' + yen(d.fyPrev.sales) + TXL + '</div></div>' +
+      '<div class="tile"><div class="v">' + yen(d.fyNow.all || 0).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fyNow.fy + '年度 全部の売上' + TXL + '<br>修理 ' + yen(d.fyNow.sales) + '・その他 ' + yen(d.fyNow.other || 0) + '・ジャンク ' + yen(d.fyNow.junk || 0) + '</div></div>' +
+      '<div class="tile"><div class="v">' + yen(d.price).replace('万円', '<small>万円</small>') + '</div><div class="k">平均単価' + TXL + '（直近6か月）</div></div></div>';
     // 仕入れの目安（ひと目でわかる形：台数 → 棚ごとのバー → 余裕を変えたら）
     if (d.buy) html += buyGuideHtml(d.buy);
     // グラフ：直近24か月＋12か月先
@@ -1197,7 +1202,7 @@
       }
     });
     html += '<div class="h2">月ごとの件数（バッテリー交換）</div>' + stChart('件数', itemsN, '件');
-    html += '<div class="h2">月ごとの売上</div>' + stChart('売上', itemsS, '万円');
+    html += '<div class="h2">月ごとの売上' + TXL + '</div>' + stChart('売上', itemsS, '万円');
     // 季節の波
     var ss = d.season || {};
     html += '<div class="h2">季節の波（1.00＝平均の月）</div><table class="t"><tr>' + [4, 5, 6, 7, 8, 9].map(function (m) { return '<td style="text-align:center">' + m + '月<br><b>' + (ss[m] || 1).toFixed(2) + '</b></td>'; }).join('') + '</tr><tr>' + [10, 11, 12, 1, 2, 3].map(function (m) { return '<td style="text-align:center">' + m + '月<br><b>' + (ss[m] || 1).toFixed(2) + '</b></td>'; }).join('') + '</tr></table>';
@@ -1211,10 +1216,10 @@
         return '<div class="rbar"><div class="rl"><span>' + esc(x.k) + '</span><span class="rn">' + x.n + '件　' + Math.round(x.n / tt * 100) + '%　' + yen(x.sales) + '</span></div><div class="rb"><div style="width:' + Math.max(3, x.n / max * 100) + '%"></div></div></div>';
       }).join('');
     };
-    html += '<div class="note" style="margin-top:18px">ここから下は直近12か月（終わった分）</div>';
+    html += '<div class="note" style="margin-top:18px">ここから下は直近12か月（終わった分）・金額は' + TX + '</div>';
     html += bars('車種（上位12）', d.by.model) + bars('グレード', d.by.grade) + bars('店舗', d.by.store) + bars('来店・出張・単体など', d.by.kind) + bars('支払方法', d.by.payment);
     // 表で見る
-    html += '<div class="h2">月ごとの表</div><div class="meta" style="margin:-4px 0 6px">月を押すと、その月の内訳（店舗・営業ごとの件数と売上など）が見られます</div><table class="t sttab"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">修理</th><th style="text-align:right">その他<br>(A)</th><th style="text-align:right">ジャン<br>ク</th><th style="text-align:right">全部</th></tr>' +
+    html += '<div class="h2">月ごとの表' + TXL + '</div><div class="meta" style="margin:-4px 0 6px">月を押すと、その月の内訳（店舗・営業ごとの件数と売上など）が見られます</div><table class="t sttab"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">修理</th><th style="text-align:right">その他<br>(A)</th><th style="text-align:right">ジャン<br>ク</th><th style="text-align:right">全部</th></tr>' +
       d.months.slice().reverse().slice(0, 24).map(function (m) {
         var on = stOpenYm === m.ym;
         return '<tr data-stym="' + esc(m.ym) + '" class="' + (on ? 'on' : '') + '"><td><span class="stv">' + (on ? '▼' : '▶') + '</span>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + m.n + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + (m.otherSales ? yen(m.otherSales) : '―') + '</td><td class="n">' + (m.junk ? yen(m.junk) : '―') + '</td><td class="n"><b>' + yen(m.all !== undefined ? m.all : m.sales) + '</b></td></tr>' +
@@ -1261,8 +1266,8 @@
     var d = jkData, f = jkForm;
     var html = '<div class="tiles"><div class="tile"><div class="v">' + d.junk + '<small>本</small></div><div class="k">今のジャンク</div></div>' +
       (d.resale !== undefined ? '<div class="tile"><div class="v">' + d.resale + '<small>本</small></div><div class="k">今の再販用ユニット' + (d.rs && d.rs.list.length ? '<br>' + esc(d.rs.list.map(function (x) { return x.per + '本×' + x.units; }).join('・')) : '') + '</div></div>' : '') +
-      '<div class="tile"><div class="v">' + yen(d.month).replace('万円', '<small>万円</small>') + '</div><div class="k">今月の売却</div></div>' +
-      '<div class="tile"><div class="v">' + yen(d.year).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fy + '年度の売却</div></div></div>';
+      '<div class="tile"><div class="v">' + yen(d.month).replace('万円', '<small>万円</small>') + '</div><div class="k">今月の売却（税込）</div></div>' +
+      '<div class="tile"><div class="v">' + yen(d.year).replace('万円', '<small>万円</small>') + '</div><div class="k">' + d.fy + '年度の売却（税込）</div></div></div>';
     html += '<div class="h2">売却を入れる</div>' +
       '<div class="lbl2">日付</div><input class="f" type="date" id="jkDate" value="' + esc(f.date) + '">' +
       '<div class="lbl2">売り先</div><div class="seg wrap">' + d.buyers.map(function (b) { return '<button data-jkbuyer="' + esc(b) + '"' + (f.buyer === b ? ' class="on"' : '') + '>' + esc(b) + '</button>'; }).join('') + '</div>' +
@@ -1276,7 +1281,7 @@
           '<div style="display:flex;gap:6px">' +
           '<div style="flex:1"><div class="lbl2" style="margin-top:4px">数量（' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkQ' + i + '" value="' + esc(l.qty) + '" placeholder="0"></div>' +
           '<div style="flex:1"><div class="lbl2" style="margin-top:4px">単価（税込・1' + unit + '）</div><input class="f" type="number" inputmode="numeric" id="jkP' + i + '" value="' + esc(l.price) + '"></div>' +
-          '<div style="flex:1"><div class="lbl2" style="margin-top:4px">金額（ちがうときだけ）</div><input class="f" type="number" inputmode="numeric" id="jkT' + i + '" value="' + esc(l.total) + '" placeholder="自動"></div>' +
+          '<div style="flex:1"><div class="lbl2" style="margin-top:4px">金額（税込・ちがうときだけ）</div><input class="f" type="number" inputmode="numeric" id="jkT' + i + '" value="' + esc(l.total) + '" placeholder="自動"></div>' +
           '</div></div>';
       }).join('') +
       '<div class="lbl2">受け取り方</div><div class="seg">' + ['現金', '振込', 'その他'].map(function (x) { return '<button data-jkpay="' + x + '"' + (f.pay === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
@@ -1288,7 +1293,7 @@
       var ls = x.lines || [{ kind: x.kind, qty: x.qty, n: x.n, total: x.total }];
       return '<div class="card"' + (off ? ' style="opacity:.55"' : '') + '><div class="row1"><span class="no">' + esc(x.buyer) + '</span><span class="date">' + esc(x.date) + (off ? '（取消）' : '') + '</span></div>' +
         '<div class="meta">' + ls.map(function (l) { return esc(l.kind + ' × ' + l.qty + '（' + l.n + '本）' + l.total.toLocaleString() + '円' + (l.src === '再販用ユニット' ? '　再販用ユニットから' : '')); }).join('<br>') + '</div>' +
-        '<div class="meta"><b>合計 ' + x.n + '本　' + x.total.toLocaleString() + '円</b>・' + esc(x.pay + '　' + x.by) + (x.memo ? '<br>' + esc(x.memo) : '') + '</div>' +
+        '<div class="meta"><b>合計 ' + x.n + '本　' + x.total.toLocaleString() + '円（税込）</b>・' + esc(x.pay + '　' + x.by) + (x.memo ? '<br>' + esc(x.memo) : '') + '</div>' +
         (off ? '' : '<button type="button" class="mini" data-jkcancel="' + esc(x.id) + '" style="margin-top:6px">取り消す</button>') + '</div>';
     }).join('') : '<div class="empty">まだありません</div>');
     html += '<div class="note">売り先は「設定」シートの「ジャンクの売り先」でも足せます。売上は集計の「全部の売上」に入ります</div>';
@@ -1355,7 +1360,7 @@
   function sellerCard(x, small) {
     var h = '<div class="card"' + (small ? ' style="margin:6px 0"' : '') + '><div class="row1"><span class="no">' + esc(x.seller) + (small ? '' : '<span class="meta" style="font-weight:400">（' + esc(x.supplier) + '）</span>') + '</span><span class="chip" style="background:' + (SUP_COL[x.verdict] || '#8A94A3') + ';color:#fff">' + esc(x.verdict) + '</span></div>' +
       '<div class="meta">前に <b>' + x.buys + '回</b>' + (x.units ? '・' + x.units + '台' : '') + (x.qty ? '（' + x.qty + '本）' : '') + (x.last ? '・最後 ' + esc(x.last) : '') + (x.pending ? '・到着待ち ' + x.pending + '回' : '') + (x.perUnitEx ? '・1台 平均 税別 ' + Number(x.perUnitEx).toLocaleString() + '円' : '') + '</div>';
-    if (x.inspected) h += supBar(x) + '<div class="meta">検査 ' + x.inspected + '台：1年以上 ' + x.p1 + '%・半年 ' + x.pHalf + '%・ジャンク ' + x.pJunk + '%' + (x.perUse ? '・使える1本あたり <b>' + Number(x.perUse).toLocaleString() + '円</b>' : '') + '</div>';
+    if (x.inspected) h += supBar(x) + '<div class="meta">検査 ' + x.inspected + '台：1年以上 ' + x.p1 + '%・半年 ' + x.pHalf + '%・ジャンク ' + x.pJunk + '%' + (x.perUse ? '・使える1本あたり <b>税別 ' + Number(x.perUse).toLocaleString() + '円</b>' : '') + '</div>';
     h += '<div class="meta">' + esc(x.why) + '</div></div>';
     return h;
   }
@@ -1369,7 +1374,7 @@
           '<div class="meta">' + esc(x.why) + '</div>' +
           '<div style="display:flex;border-radius:5px;overflow:hidden;margin:8px 0 4px;gap:2px">' + bar(x.p1, '#1B2A3A') + bar(x.pHalf, '#7B93B3') + bar(x.pJunk, '#E3A49C') + '</div>' +
           '<div class="meta">1年以上 ' + x.p1 + '%・半年 ' + x.pHalf + '%・ジャンク ' + x.pJunk + '%　（' + x.units + '台・' + x.total + '本）</div>' +
-          '<div class="meta">' + (x.perUnit ? '1台 平均 ' + x.perUnit.toLocaleString() + '円' : '金額なし') + (x.perUse ? '・使える1本あたり <b>' + x.perUse.toLocaleString() + '円</b>' : '') + (x.models.length ? '　多い車種：' + esc(x.models.join('・')) : '') + '</div></div>';
+          '<div class="meta">' + (x.perUnit ? '1台 平均 税別 ' + x.perUnit.toLocaleString() + '円' : '金額なし') + (x.perUse ? '・使える1本あたり <b>税別 ' + x.perUse.toLocaleString() + '円</b>' : '') + (x.models.length ? '　多い車種：' + esc(x.models.join('・')) : '') + '</div></div>';
       }).join('') + '<div class="ckey"><span><i style="background:#1B2A3A"></i>1年以上に使える</span><span><i style="background:#7B93B3"></i>半年用</span><span><i style="background:#E3A49C"></i>ジャンク</span></div>' +
         '<div class="note">判断のしかた：3台以上検査した仕入先だけ。ジャンクが半分以上＝やめたほうがよい／1年以上が半分以上で1本あたりがふつう以下＝おすすめ／1本あたりがふつうの1.5倍以上＝割高' + (d.median ? '（ふつう＝' + d.median.toLocaleString() + '円）' : '') + '</div>'
         : '<div class="empty">まだ検査の結果がありません。検査を入れると、ここに出ます</div>';
@@ -1587,14 +1592,24 @@
     var p = d.pf; if (!p || p.none) return '';
     var y = function (v) { return (Math.round(v) || 0).toLocaleString() + '円'; };
     var rate = function (x) { return x.rate === null || x.rate === undefined ? '' : '（' + x.rate + '%）'; };
-    var a = p.actual || p.now, pl = p.plan;
-    var head = (pl ? '予定 ' + y(pl.gp) + rate(pl) : '') + (pl && a ? ' → ' : '') + (a ? (p.actual ? '実績 ' : '今の見込み ') + y(a.gp) + rate(a) : '');
+    var a = p.actual || p.now, pl = p.plan, cr = p.credit || null;
+    var cy = cr ? cr.yen : 0;
+    var head = (pl ? '予定 ' + y(pl.gp) + rate(pl) : '') + (pl && a ? ' → ' : '') + (a ? (p.actual ? '実績 ' : '今の見込み ') + y(a.gp) + rate(a) : '') + (cy && a ? '／回収込み ' + y(a.gp + cy) : '') + '（税別）';
     var body = '';
     if (pl) body += '<div class="meta"><b>予定</b>（充電開始のとき・' + esc(pl.at) + '）：モジュール ' + y(pl.mod) + '（' + pl.n + '本）・バスバー ' + y(pl.bus) + (pl.ship ? '・送料 ' + y(pl.ship) : '') + (pl.labor ? '・人件費 ' + y(pl.labor) : '') + '<br>' + esc(pl.text) + '</div>';
     if (a) body += '<div class="meta" style="margin-top:6px"><b>' + (p.actual ? '実績' : '今の見込み') + '</b>：売上 ' + y(a.sales) + '（税別）− モジュール ' + y(a.mod) + '（' + a.n + '本）− バスバー ' + y(a.bus) + '（' + a.busN + '枚' + (a.busEst ? '・平均で見込み' : '') + '）' +
       (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + ' ＝ ' + y(a.gp) + '<br>' +
-      esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : ''); }).join('／')) +
+      esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : l.ret ? '（戻りの値段）' : ''); }).join('／')) +
+      (a.retN ? '<br>修理の戻り ' + a.retN + '本は、1本 G2 ' + y(a.retPrice.G2) + '・G3 ' + y(a.retPrice.G3) + '（購入ユニットの使える1本あたりの平均）で原価に入れています。その分は、戻りが出た元の修理に「戻りの回収」として足します' : '') +
       (p.actual ? '<br>「修理の粗利」シートに記録' + (p.recAt ? '（' + esc(p.recAt) + '）' : '') + '。バスバーの枚数・人件費（その月の件数）が変わると直ります' : '') + '</div>';
+    if (cr && (cr.yen || cr.pend) && a) {
+      body += '<div class="meta" style="margin-top:6px;padding:6px 8px;background:#ECFDF3;border-radius:8px"><b>戻りの回収</b>（この修理で外した電池が、次の修理の仕入れになった分・税別）<br>' +
+        (cr.yen ? '使われた分：<b>+' + y(cr.yen) + '</b>（' + cr.n + '本：' + esc(cr.uses.map(function (u) { return u.no + ' ' + u.n + '本'; }).join('・')) + '）<br>' : 'まだ次の修理には使われていません<br>') +
+        '<b>回収込みの粗利 ' + y(a.gp + cr.yen) + '</b>' + (a.sales ? '（' + Math.round((a.gp + cr.yen) / a.sales * 1000) / 10 + '%）' : '') +
+        (cr.pend ? '<br>回収見込み：棚に使える分 ' + cr.pend.use + '本（約 ' + y(cr.pend.yen) + '）' + (cr.pend.unmeasured ? '・未計測 ' + cr.pend.unmeasured + '本' : '') + (cr.pend.junk ? '・ジャンク ' + cr.pend.junk + '本' : '') + '。使われたら回収に入ります' : '') + '</div>';
+    } else if (p.retOut && a && p.actual) {
+      body += '<div class="meta" style="margin-top:6px">戻りの回収：外した電池がまだ届いていないか、検査前です（使える分が次の修理に使われたら、ここに足されます）</div>';
+    }
     return '<details class="panel" style="margin:0 0 10px"><summary><b>粗利</b>　' + esc(head) + '</summary>' + body + '</details>';
   }
   function renderOrder(scroll) {
@@ -1977,11 +1992,11 @@
         html += v.plans.map(function (q) {
           var on = q.grade === sel;
           return '<button type="button" data-rpg="' + esc(q.grade) + '" style="display:block;width:100%;text-align:left;margin:0 0 6px;padding:10px 12px;border-radius:10px;border:2px solid ' + (on ? 'var(--accent,#1f6feb)' : 'var(--line,#ddd)') + ';background:' + (on ? 'rgba(31,111,235,.08)' : 'transparent') + ';font-size:15px">' +
-            '<b>' + esc(q.grade) + '</b>' + (q.grade === v.grade ? '（今）' : '') + '<span style="float:right">' + (q.price ? '¥' + Number(q.price).toLocaleString() : '<span class="meta">料金表になし</span>') + '</span>' +
+            '<b>' + esc(q.grade) + '</b>' + (q.grade === v.grade ? '（今）' : '') + '<span style="float:right">' + (q.price ? '¥' + Number(q.price).toLocaleString() + '<small>（税込）</small>' : '<span class="meta">料金表になし</span>') + '</span>' +
             '<div class="meta">' + (q.until ? '保証期限 ' + esc(q.until) : '修理日が決まると保証期限が入ります') + (q.warns.length ? '　<span style="color:#B42318">注意あり</span>' : '') + '</div></button>';
         }).join('');
-        html += '<div class="lbl2">金額（受注シート）</div><input class="f" type="number" inputmode="numeric" id="rpAmt" value="' + esc(amt) + '">';
-        html += '<div class="meta">' + (p.price ? '料金表：¥' + Number(p.price).toLocaleString() + (String(amt) !== String(p.price) ? ' <button type="button" class="mini" data-rpprice="' + p.price + '">この金額にする</button>' : '') : '料金表にないので、金額を入れてください') + '</div>';
+        html += '<div class="lbl2">金額（受注シート・税込）</div><input class="f" type="number" inputmode="numeric" id="rpAmt" value="' + esc(amt) + '">';
+        html += '<div class="meta">' + (p.price ? '料金表：¥' + Number(p.price).toLocaleString() + '（税込）' + (String(amt) !== String(p.price) ? ' <button type="button" class="mini" data-rpprice="' + p.price + '">この金額にする</button>' : '') : '料金表にないので、金額を入れてください') + '</div>';
         if (p.warns && p.warns.length) html += '<div class="warnbox" style="margin-top:8px">' + p.warns.map(esc).join('<br><br>') + '</div>';
         if (v.done) html += '<div class="note" style="margin-top:8px">修理は終わっています。保証書・領収書を渡していれば、作り直してください</div>';
         html += '<div class="two" style="margin-top:12px"><button data-a="0">やめる</button><button class="danger" data-a="1">変更する</button></div></div>';
@@ -2163,17 +2178,17 @@
   function renderKg() {
     var d = kgData, f = kgForm;
     var accs = f.dir === '入金' ? d.accountsIn : d.accountsOut;
-    var html = '<div class="tiles"><div class="tile"><div class="v">' + Number(d.balance).toLocaleString() + '<small>円</small></div><div class="k">今の残高（' + esc(d.sheet) + '）</div></div></div>';
+    var html = '<div class="tiles"><div class="tile"><div class="v">' + Number(d.balance).toLocaleString() + '<small>円</small></div><div class="k">今の残高（' + esc(d.sheet) + '）<br>現金そのもの（税込）</div></div></div>';
     html += '<div class="panel"><div class="lbl2">出金・入金</div><div class="seg">' + ['出金', '入金'].map(function (x) { return '<button type="button" data-kgdir="' + x + '"' + (f.dir === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
       '<div class="note">' + (f.dir === '出金' ? '小口現金から払ったお金（ガソリン代・文具・駐車場代など）' : '修理以外で受け取った現金（修理の現金は、チェックリストの「お支払いいただく」で自動で入ります）') + '</div>' +
       '<div class="lbl2">日付</div><input class="f" type="date" id="kgDate" value="' + esc(f.date || d.today) + '" min="' + esc(d.min) + '" max="' + esc(d.today) + '">' +
       '<div class="lbl2">相手科目</div>' + (accs.length ? '<div class="seg wrap">' + accs.map(function (a) { return '<button type="button" data-kgacc="' + esc(a) + '"' + (f.account === a ? ' class="on"' : '') + '>' + esc(a) + '</button>'; }).join('') + '</div>' : '') +
       '<input class="f" id="kgAcc" value="' + esc(f.account || '') + '" placeholder="上にないときは入力（例：旅費交通費）">' +
       '<div class="lbl2">備考（何に・誰から）</div><input class="f" id="kgLabel" value="' + esc(f.label || '') + '" placeholder="' + (f.dir === '出金' ? '例：ガソリン代　出光 行橋' : '例：○○様 部品代') + '">' +
-      '<div class="lbl2">金額（円）</div><input class="f" type="number" inputmode="numeric" id="kgAmount" value="' + esc(f.amount || '') + '" placeholder="例：3500">' +
+      '<div class="lbl2">金額（円・税込＝実際に払った・受け取った金額）</div><input class="f" type="number" inputmode="numeric" id="kgAmount" value="' + esc(f.amount || '') + '" placeholder="例：3500">' +
       '<button class="btn" data-kgsave="1">小口現金に入れる</button></div>';
     html += '<div class="h2">アプリから入れた分（今月・先月）</div>';
-    html += d.mine.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>金額</th><th></th></tr>' + d.mine.map(function (x) {
+    html += d.mine.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>金額<br><small>税込</small></th><th></th></tr>' + d.mine.map(function (x) {
       return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + '・' + esc(x.by) + '</div></td><td class="n" style="color:' + (x.out ? '#B42318' : '#027A48') + '">' + (x.out ? '−' + x.out.toLocaleString() : '＋' + x.in.toLocaleString()) + '</td><td>' +
         (x.canCancel ? '<button type="button" class="mini" style="white-space:nowrap" data-kgcancel="' + esc(x.key) + '">取消</button>' : '') + '</td></tr>';
     }).join('') + '</table>' : '<div class="empty">まだありません</div>';
@@ -2554,7 +2569,7 @@
           (cRows.length > 1 ? '<button class="btn sub" data-cdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
           (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' +
             '<select class="f" data-crow="' + i + '" data-ck="lot" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
-            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { var gm = guideMark(l.range || l.rangeLabel, r.grade); return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + (gm ? gm.sym + ' ' : '') + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本' + (d.pf && l.unit ? '　1本 ' + (d.pf.per[l.unit] === null || d.pf.per[l.unit] === undefined ? '値段不明' : yenF(d.pf.per[l.unit])) + (d.pf.sup[l.unit] ? '（' + esc(d.pf.sup[l.unit]) + '）' : '') : '') + '</option>'; }).join('') +
+            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { var gm = guideMark(l.range || l.rangeLabel, r.grade); return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + (gm ? gm.sym + ' ' : '') + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本' + (d.pf && l.unit ? '　1本 税別 ' + (d.pf.per[l.unit] === null || d.pf.per[l.unit] === undefined ? '値段不明' : yenF(d.pf.per[l.unit])) + (d.pf.sup[l.unit] ? '（' + esc(d.pf.sup[l.unit]) + '）' : '') : '') + '</option>'; }).join('') +
             '</select>' + cUseHtml(r, i, id) : '') + '</div>';
       });
       html += '<button class="btn sub" data-cadd="1">＋ 行を足す（棚・ユニットが分かれたら）</button>';
@@ -2604,12 +2619,13 @@
     });
     var mod = e.mod + addMod, n = e.n + addN, cost = mod + e.bus + e.ship + e.labor, gp = e.sales - cost;
     var used = e.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + yenF(l.per) + (l.est ? '（見込み）' : ''); });
-    return '<b>この修理の粗利（見込み）：' + yenF(gp) + (e.sales ? '（' + Math.round(gp / e.sales * 1000) / 10 + '%）' : '') + '</b>' +
+    return '<b>この修理の粗利（見込み・税別）：' + yenF(gp) + (e.sales ? '（' + Math.round(gp / e.sales * 1000) / 10 + '%）' : '') + '</b>' +
       '<div class="meta">売上 ' + yenF(e.sales) + '（税別）− モジュール ' + yenF(mod) + '（' + n + '本）− バスバー ' + yenF(e.bus) + '（' + e.busN + '枚' + (e.busEst ? '・平均で見込み' : '') + '）' +
       (e.ship ? '− 送料 ' + yenF(e.ship) : '') + (e.labor ? '− 人件費 ' + yenF(e.labor) + '（月の人件費÷' + e.laborCnt + '件）' : '') + '</div>' +
       (used.length ? '<div class="meta">出したモジュール：' + esc(used.join('／')) + '</div>' : '') +
       (add.length ? '<div class="meta">これから出す：' + esc(add.join('／')) + '</div>' : '') +
       (e.est + addEst ? '<div class="meta">値段がわからないユニットは平均 ' + yenF(p.avgMod) + '／本で見込み</div>' : '') +
+      (e.retN || cRows.some(function (r) { var u = String(r.lot || '').split('|')[0]; return u && p.ret && p.ret[u] && Number(r.n) > 0; }) ? '<div class="meta">修理の戻りは1本 G2 ' + yenF((p.retPrice || {}).G2) + '・G3 ' + yenF((p.retPrice || {}).G3) + '（税別。購入ユニットの使える1本あたりの平均）で原価に入れます。その分は、戻りが出た元の修理に「戻りの回収」として足します</div>' : '') +
       (e.missing && e.missing.length ? '<div class="meta">「設定」にまだない値：' + esc(e.missing.join('・')) + '</div>' : '') +
       '<div class="meta">充電開始を押すと「修理の粗利」シートに予定として記録し、修理日が過ぎたら実績も記録します（店長・管理者だけに表示）</div>';
   }
@@ -3851,7 +3867,7 @@
         '<span style="flex:1;min-width:0"><b style="font-size:' + (top ? '17px' : '15px') + '">' + esc(x.grade) + '</b>' + (top ? ' <span class="chip" style="background:#2E7D4F;color:#fff">いちばんおすすめ</span>' : '') +
         '<br><small style="color:#475467">' + (nRank.yen ? '粗利 平均 ' + nRankYen(x.avg) + ' × ' + x.n + '件 ＝ ' + nRankYen(x.total) : x.n + '件') + (x.few ? '（まだ少ない）' : '') + '</small></span></div>';
     }).join('');
-    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。（粗利 − 再修理の費用）の平均 × 件数 の大きい順' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
+    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。（粗利＋戻りの回収 − 再修理の費用）の平均 × 件数 の大きい順・税別' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
     box.innerHTML = h;
     if (seg) list.forEach(function (x) {
       var b = Array.prototype.filter.call(seg.querySelectorAll('button'), function (el) { return el.getAttribute('data-v') === x.grade; })[0];
@@ -3881,7 +3897,7 @@
     if (g === null) { el.textContent = '料金表にない車種です（金額を入れてください）'; return; }
     var p = row && P.table[cat] && P.table[cat][typ] && P.table[cat][typ][row] ? P.table[cat][typ][row][g] : null;
     if (!p) { el.textContent = '料金表に「' + cat + '・' + typ + '・' + (row || nf.grade) + '」の金額がありません'; return; }
-    el.innerHTML = '料金表：' + esc(cat + '・' + typ + '・' + row + '（' + P.groups[g] + '）') + ' <b>¥' + Number(p).toLocaleString() + '</b>' +
+    el.innerHTML = '料金表：' + esc(cat + '・' + typ + '・' + row + '（' + P.groups[g] + '）') + ' <b>¥' + Number(p).toLocaleString() + '</b>（税込）' +
       ' <button type="button" class="mini" data-nprice="' + p + '">入れる</button>';
     var a = $('nAmount');
     if (a && (!a.value || nf.autoAmount !== null)) { a.value = p; nf.autoAmount = p; }
