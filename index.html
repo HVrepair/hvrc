@@ -332,7 +332,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16b';
+  var SCREEN_VERSION = '2026-11-16c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1528,7 +1528,7 @@
       if (!it.result && !firstOpen) firstOpen = it.id;
       var cls = it.result === '済' ? ' done' : (it.result === '該当なし' ? ' na' : '');
       var mark = it.result === '済' ? '✓' : (it.result === '該当なし' ? 'ー' : '');
-      var badge = it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : it.id === 'C45' ? (it.result ? '' : '<span class="badge auto">在庫の「戻りが届いた」で自動</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
+      var badge = isPhotoItem(it) && !it.result ? '<span class="badge auto">📷 押すと写真をDropboxに入れられます</span>' : it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : it.id === 'C45' ? (it.result ? '' : '<span class="badge auto">在庫の「戻りが届いた」で自動</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
       var val = it.value;
       if (it.id === 'C49' && val) { var pm = /棚から(\d+)本・ユニット(\d+)台・余り(\d+)本/.exec(val); if (pm) val = newPlanWords({ fromShelf: +pm[1], units: +pm[2], toShelf: +pm[3] }, '').replace(/<\/?b>/g, '').replace('開けて 本使い、', '開けて使い、'); }
       var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
@@ -1611,7 +1611,75 @@
     }
   });
 
+  // ---- 修理の写真（チェック「写真をフォルダに入れる」から Dropbox のお客様フォルダへ） ----
+  var photoData = {}, photoBusy = '';
+  function isPhotoItem(it) { return it && (it.id === 'C41' || /写真.*フォルダ/.test(String(it.label || ''))); }
+  function photoLoad() {
+    var k = current && current.key;
+    if (!k) return;
+    call('photoList', { key: k }).then(function (d) { photoData[k] = d; if (current && current.key === k) renderOrder(false); })
+      .catch(function (e) { photoData[k] = { err: e.message }; if (current && current.key === k) renderOrder(false); });
+  }
+  function photoHtml(it) {
+    var d = photoData[current.key];
+    var h = '<div class="inline">';
+    if (!d) return h + '<div class="meta">保存先を調べています…</div></div>';
+    if (d.err) return h + '<div class="advice">' + esc(d.err) + '</div><button type="button" class="btn sub" data-phdone="1">写真なしで済にする</button></div>';
+    if (!d.ready) h += '<div class="advice">Dropboxとまだつながっていません。管理者がスプレッドシートのメニュー「HVRC管理」→「Dropboxと接続（写真用）」を1回行うと使えます</div>';
+    h += '<div class="meta" style="word-break:break-all">保存先：' + esc(d.folder || '（わかりません）') + '<br><small>' + esc(d.from || '') + '</small></div>';
+    if (d.ready) h += '<label class="btn" style="display:block;text-align:center;margin:8px 0;cursor:pointer">📷 写真を撮る・選ぶ（何枚でも）<input type="file" accept="image/*" multiple data-phfile="1" style="display:none"></label>';
+    h += '<div id="phProg" class="meta"></div>';
+    h += '<div class="meta"><b>入れた写真 ' + (d.count || 0) + '枚</b>' + (d.files && d.files.length ? '：' + d.files.slice(0, 6).map(function (f) { return esc(f.file) + '（' + esc(f.by + ' ' + f.at) + '）'; }).join('、') + (d.files.length > 6 ? ' ほか' : '') : '') + '</div>';
+    h += '<button type="button" class="btn sub" data-phdone="1" style="margin-top:8px">' + (d.count ? 'これで済にする' : '写真なしで済にする') + '</button>';
+    return h + '</div>';
+  }
+  // 写真を長い辺1600pxの JPEG に縮める
+  function photoShrink(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 1600, w = img.naturalWidth, h = img.naturalHeight, r = Math.min(1, max / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * r); c.height = Math.round(h * r);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('写真を読めませんでした：' + file.name)); };
+      img.src = url;
+    });
+  }
+  document.addEventListener('change', function (e) {
+    if (!e.target || !e.target.matches || !e.target.matches('[data-phfile]') || !current) return;
+    var files = Array.prototype.slice.call(e.target.files || []), k = current.key;
+    if (!files.length || photoBusy) return;
+    photoBusy = k;
+    var ok = 0, i = 0;
+    var prog = function (msg) { var p = $('phProg'); if (p) p.textContent = msg; };
+    var next = function () {
+      if (i >= files.length) {
+        photoBusy = '';
+        okToast(ok + '枚を Dropbox に入れました');
+        photoLoad();
+        var it = current && current.key === k ? current.items.filter(isPhotoItem)[0] : null;
+        if (ok && it && !it.result) send(it.id, '済');
+        return;
+      }
+      var f = files[i++];
+      prog(i + ' / ' + files.length + ' 枚目を送っています…');
+      photoShrink(f).then(function (data) { return call('photoUpload', { key: k, data: data, name: f.name }); })
+        .then(function (d) { ok++; photoData[k] = d; })
+        .catch(function (er) { toast(er.message); })
+        .then(next);
+    };
+    next();
+  });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('[data-phdone]') || !current) return;
+    var it = current.items.filter(isPhotoItem)[0];
+    if (it && !it.result) { openInline = ''; send(it.id, '済'); }
+  });
   function inlineHtml(it) {
+    if (isPhotoItem(it)) return photoHtml(it);
     if (it.type === 'スキャン') return it.id === 'C12' ? caseHtml() : it.id === 'C49' ? newModHtml() : chargeHtml();
     if (it.type === '選択') {
       return '<div class="inline"><div class="opts">' + ['現金', 'カード', '振込', '掛け振込'].map(function (p) {
@@ -1700,6 +1768,7 @@
         confirmSheet('「' + it.label + '」のチェックを取り消しますか？', '取り消す').then(function (ok) { if (ok) send(itemId, '取消'); });
         return;
       }
+      if (isPhotoItem(it)) { openInline = openInline === itemId ? '' : itemId; renderOrder(false); if (openInline) photoLoad(); return; }
       if (it.type === '選択' || it.type === '入力') { openInline = openInline === itemId ? '' : itemId; renderOrder(false); return; }
       if (it.type === 'スキャン') {
         openInline = openInline === itemId ? '' : itemId;
