@@ -345,7 +345,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16k';
+  var SCREEN_VERSION = '2026-11-16n';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -950,13 +950,14 @@
           var cw = m.gpWith !== undefined ? m.gpWith : m.gp;
           return '<tr><td>' + m.ym.slice(2).replace('-', '/') + (m.cur ? '<br><small>今月</small>' : '') + '</td><td class="n">' + m.n + '<small>/' + m.all + '</small>' + (m.past ? '<br><small>シート' + m.past + '</small>' : '') + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + yen(m.gp) + '<br><small>' + pct(m.rate) + '</small></td><td class="n">' + (m.credit ? '+' + yen(m.credit) : '―') + (m.pend ? '<br><small style="color:#667085">見込み ' + yen(m.pend) + '</small>' : '') + '</td><td class="n"><b>' + yen(cw) + '</b><br><small>' + pct(m.rateWith !== undefined ? m.rateWith : m.rate) + '</small></td><td class="n">' + (m.reN ? m.reN + '件<br><small>' + yen(m.reCost) + '</small>' : '―') + '</td></tr>';
         }).join('') + '</table>';
-      html += '<div class="h2">原価の内訳（月ごと・税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">原価</th><th style="text-align:right">モジュール</th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th></tr>' +
-        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.mod) + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td></tr>'; }).join('') + '</table>';
+      html += '<div class="h2">原価の内訳（月ごと・税別）</div><table class="t tight"><tr><th>月</th><th style="text-align:right">原価</th><th style="text-align:right">モジュール</th><th style="text-align:right">バスバー</th><th style="text-align:right">送料</th><th style="text-align:right">人件費</th><th style="text-align:right">出張<br><small>ガソリン・高速</small></th></tr>' +
+        d.months.slice().reverse().slice(0, 12).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + yen(m.cost) + '</td><td class="n">' + yen(m.mod) + '</td><td class="n">' + yen(m.bus) + '</td><td class="n">' + yen(m.ship) + '</td><td class="n">' + yen(m.labor) + '</td><td class="n">' + (m.travel ? yen(m.travel) + '<br><small>' + m.trips + '件</small>' : '―') + '</td></tr>'; }).join('') + '</table>';
       html += '<div class="note">件数は「計算できた件数／その月の修理の件数」。再修理は0円の修理で、費用は元の修理の保証の費用として別に出しています。' +
         'モジュール：1本あたり＝仕入金額÷' + (s.useOnly ? '検査で使えた本数' : 'そのユニットの全部の本数') + '（「設定」の「モジュール原価の割り方」）× 使った本数。仕入金額（税別）は「ユニット」シート → なければ棚卸表の中古入荷履歴（過去のユニット ' + s.past + '台）。' +
         '<b>修理の戻り</b>（番号の頭 ' + esc(s.ret) + '）は0円。' + (s.retPrice ? '戻りが次の修理で使われたら、その本数 × 1本 G2 ' + yen(s.retPrice.G2) + '（' + esc(s.retPrice.fromG2) + '）・G3 ' + yen(s.retPrice.G3) + '（' + esc(s.retPrice.fromG3) + '）を、戻りが出た元の修理の「戻り分」として足し、「粗利＋戻り分＝実質粗利」で出しています（使った修理は0円のままなので、実質粗利を全部足すと会社全体の粗利より多くなります。1件ごと・プランごとの見方です）。「見込み」は、まだ棚にある使える戻りの分。1本の値段は「設定」の「戻りの1本の値段（税別）」で決めることもできます。' : '') + '新品は ' + yen(s.newPrice) + '／本' + (s.newFrom ? '（' + esc(s.newFrom) + '）' : '') + '。値段がわからない購入ユニットは、値段のわかる分の平均 ' + yen(s.avgMod) + '／本で見込み（' + d.est.mods + '本）。' +
         '「シート」は受注シートのバッテリー内容から計算した件数（' + d.est.past + '件）。' +
-        'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' をその月の修理件数で割る。' +
+        'バスバー：' + yen(s.bus) + '／枚' + (d.est.bus ? '（枚数が未入力の ' + d.est.bus + '件は平均 ' + s.avgBus + '枚で見込み）' : '') + '。送料：発送の修理だけ ' + yen(s.ship) + '。人件費：月 ' + yen(s.labor) + ' を、その月の修理に「作業 ' + (s.trip ? s.trip.baseH : 3) + '時間＋出張なら往復の移動時間」の割合で割り振る（合計は月の人件費のまま）。' +
+        (s.trip ? '出張：' + esc(s.trip.origin) + ' から受注シートの住所までの道のり（Googleマップ）で、ガソリン 1km ' + yen(s.trip.fuel) + '×往復・高速代は片道 ' + s.trip.tollKm + 'km以上の出張に ' + yen(s.trip.toll) + '（' + s.trip.n + '件' + (s.trip.est ? '・うち ' + s.trip.est + '件は平均 片道' + s.trip.avgKm + 'km・' + s.trip.avgMin + '分で見込み' + (s.trip.noAddr ? '（住所なし ' + s.trip.noAddr + '件）' : '') : '') + '）。' : '') +
         '受注の金額は' + (s.taxIn ? '税込として1.1で割っています' : '税別として計算しています') + '</div>';
       var tbl = function (title, list) {
         if (!list || !list.length) return '';
@@ -970,7 +971,7 @@
         '<div class="seg" style="margin:4px 0 8px"><button type="button" data-pflh="low"' + (pfLH !== 'high' ? ' class="on"' : '') + '>少なかった修理</button><button type="button" data-pflh="high"' + (pfLH === 'high' ? ' class="on"' : '') + '>多かった修理</button></div>' + lhList.map(function (x) {
         return '<a class="card" href="#/order/' + encodeURIComponent(x.key) + '" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + esc(x.no) + '</span><span class="date">' + esc(x.date) + '</span></div>' +
           '<div class="meta">' + esc(x.model + '・' + x.grade + '・' + x.kind) + (x.past ? '（受注シートのバッテリー内容から）' : '') + '</div>' +
-          '<div class="meta">売上 ' + yen(x.sales) + '　モジュール ' + yen(x.mod) + '（' + x.n + '本' + (x.est ? '・うち見込み ' + x.est + '本' : '') + '）　バスバー ' + yen(x.bus) + (x.ship ? '　送料 ' + yen(x.ship) : '') + (x.labor ? '　人件費 ' + yen(x.labor) : '') + '</div>' +
+          '<div class="meta">売上 ' + yen(x.sales) + '　モジュール ' + yen(x.mod) + '（' + x.n + '本' + (x.est ? '・うち見込み ' + x.est + '本' : '') + '）　バスバー ' + yen(x.bus) + (x.ship ? '　送料 ' + yen(x.ship) : '') + (x.labor ? '　人件費 ' + yen(x.labor) : '') + (x.travel ? '　出張 ' + yen(x.travel) + (x.trip ? '（片道' + x.trip.km + 'km' + (x.trip.est ? '・見込み' : '') + '）' : '') : '') + '</div>' +
           '<div class="meta"><b>粗利 ' + yen(x.gp) + '</b>' + (x.rate !== null && x.rate !== undefined ? '（' + x.rate + '%）' : '') + (x.reCost ? '　再修理の費用 ' + yen(x.reCost) : '') + (x.retN ? '　<small>（戻り ' + x.retN + '本は0円）</small>' : '') + '</div>' +
           (x.credit || x.pend ? '<div class="meta" style="color:#067647">＋戻り分 ' + yen(x.credit) + (x.creditN ? '（' + x.creditN + '本）' : '') + ' ＝ <b>実質粗利 ' + yen(x.gpWith) + '</b>' + (x.rateWith !== null && x.rateWith !== undefined ? '（' + x.rateWith + '%）' : '') + (x.pend ? '　<span style="color:#667085">見込み +' + yen(x.pend) + '</span>' : '') + '</div>' : '') + '</a>';
       }).join('');
@@ -1598,7 +1599,8 @@
     var body = '';
     if (pl) body += '<div class="meta"><b>予定</b>（充電開始のとき・' + esc(pl.at) + '）：モジュール ' + y(pl.mod) + '（' + pl.n + '本）・バスバー ' + y(pl.bus) + (pl.ship ? '・送料 ' + y(pl.ship) : '') + (pl.labor ? '・人件費 ' + y(pl.labor) : '') + '<br>' + esc(pl.text) + '</div>';
     if (a) body += '<div class="meta" style="margin-top:6px"><b>' + (p.actual ? '実績' : '今の見込み') + '</b>：売上 ' + y(a.sales) + '（税別）− モジュール ' + y(a.mod) + '（' + a.n + '本）− バスバー ' + y(a.bus) + '（' + a.busN + '枚' + (a.busEst ? '・平均で見込み' : '') + '）' +
-      (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + ' ＝ ' + y(a.gp) + '<br>' +
+      (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + (a.travel ? '− 出張（ガソリン・高速） ' + y(a.travel) : '') + ' ＝ ' + y(a.gp) + '<br>' +
+      (a.trip ? '出張：苅田行橋店から片道 ' + a.trip.km + 'km・' + a.trip.min + '分（往復 ' + a.trip.hours + '時間）' + (a.trip.est ? (a.trip.noAddr ? '・住所がないので平均で見込み' : '・平均で見込み') : '') + '。ガソリン ' + y(a.trip.fuel) + (a.trip.toll ? '・高速 ' + y(a.trip.toll) : '・高速なし') + '。人件費は作業 ' + a.baseH + '時間＋移動の時間で割り振り<br>' : '') +
       esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : l.ret ? '（戻りの値段）' : ''); }).join('／')) +
       (a.retN ? '<br>修理の戻り ' + a.retN + '本は0円です。この分（1本 G2 ' + y(a.retPrice.G2) + '・G3 ' + y(a.retPrice.G3) + ' 相当＝' + y(a.retYen) + '）は、戻りが出た元の修理の「戻り分」になります' : '') +
       (p.actual ? '<br>「修理の粗利」シートに記録' + (p.recAt ? '（' + esc(p.recAt) + '）' : '') + '。バスバーの枚数・人件費（その月の件数）が変わると直ります' : '') + '</div>';
@@ -2617,11 +2619,12 @@
       var rgTxt = r.lo !== undefined && r.lo !== '' ? (Number(r.lo) === Number(r.hi) || r.hi === '' || r.hi === undefined ? String(r.lo) : r.lo + '〜' + r.hi) : (a[1] ? a[1].replace('-', '〜') : '');
       add.push((u || 'ユニット未選択') + (u && p.sup[u] ? '（' + p.sup[u] + (rgTxt ? '・' + rgTxt : '') + '）' : '') + ' ' + n + '本×' + yenF(per) + (known ? '' : '（見込み）'));
     });
-    var mod = e.mod + addMod, n = e.n + addN, cost = mod + e.bus + e.ship + e.labor, gp = e.sales - cost;
+    var mod = e.mod + addMod, n = e.n + addN, cost = mod + e.bus + e.ship + e.labor + (e.travel || 0), gp = e.sales - cost;
     var used = e.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + yenF(l.per) + (l.est ? '（見込み）' : ''); });
     return '<b>この修理の粗利（見込み・税別）：' + yenF(gp) + (e.sales ? '（' + Math.round(gp / e.sales * 1000) / 10 + '%）' : '') + '</b>' +
       '<div class="meta">売上 ' + yenF(e.sales) + '（税別）− モジュール ' + yenF(mod) + '（' + n + '本）− バスバー ' + yenF(e.bus) + '（' + e.busN + '枚' + (e.busEst ? '・平均で見込み' : '') + '）' +
-      (e.ship ? '− 送料 ' + yenF(e.ship) : '') + (e.labor ? '− 人件費 ' + yenF(e.labor) + '（月の人件費÷' + e.laborCnt + '件）' : '') + '</div>' +
+      (e.ship ? '− 送料 ' + yenF(e.ship) : '') + (e.labor ? '− 人件費 ' + yenF(e.labor) + '（月の人件費を' + e.laborCnt + '件に時間で割り振り）' : '') + (e.travel ? '− 出張 ' + yenF(e.travel) : '') + '</div>' +
+      (e.trip ? '<div class="meta">出張：片道 ' + e.trip.km + 'km・' + e.trip.min + '分' + (e.trip.est ? '（平均で見込み）' : '') + '・ガソリン ' + yenF(e.trip.fuel) + (e.trip.toll ? '・高速 ' + yenF(e.trip.toll) : '') + '</div>' : '') +
       (used.length ? '<div class="meta">出したモジュール：' + esc(used.join('／')) + '</div>' : '') +
       (add.length ? '<div class="meta">これから出す：' + esc(add.join('／')) + '</div>' : '') +
       (e.est + addEst ? '<div class="meta">値段がわからないユニットは平均 ' + yenF(p.avgMod) + '／本で見込み</div>' : '') +
