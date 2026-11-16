@@ -264,6 +264,18 @@
   .sdh { font-weight: 700; font-size: 13px; margin: 10px 0 2px; border-left: 4px solid #1F3A5F; padding-left: 6px; }
   .sdt { width: 100%; } .sdt td, .sdt th { font-size: 12px; padding: 4px 3px; } .sdt td.n, .sdt th { white-space: nowrap; } .sdt td:first-child { min-width: 4.5em; } .sdt .pc { display: block; font-size: 10.5px; color: #667085; font-weight: 400; } .sdt tr.sum td { font-weight: 800; border-top: 2px solid #1F3A5F; }
   .t.tight td, .t.tight th { font-size: 12px; padding: 5px 3px; } .t.tight td.n { white-space: nowrap; } .t.tight th { line-height: 1.25; }
+  .findbar { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; padding: 10px 12px; border: 1.5px solid #D0D5DD; border-radius: 12px; background: #fff; color: #344054; text-decoration: none; font-weight: 700; }
+  .findbar small { font-weight: 400; color: #667085; font-size: 11px; margin-left: auto; text-align: right; }
+  .fdet { margin-top: 6px; padding: 8px; background: #F9FAFB; border-radius: 8px; font-size: 13px; line-height: 1.7; }
+  .fdet b { display: inline-block; min-width: 7.5em; color: #475467; font-weight: 600; }
+  .fdet a.btn { display: block; text-decoration: none; text-align: center; }
+  .stk { border: 2px solid #1F3A5F; border-radius: 12px; padding: 10px 12px; margin: 8px 0 4px; background: #F5F8FC; }
+  .stk .row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid #DDE5F0; }
+  .stk .row:first-of-type { border-top: 0; }
+  .stk .row.sel { background: #FFF7D6; margin: 0 -6px; padding: 6px; border-radius: 8px; }
+  .stk .w { flex: none; width: 3.6em; font-weight: 800; }
+  .stk .chip2 { display: inline-block; font-size: 11.5px; padding: 1px 6px; border-radius: 10px; margin: 2px 3px 0 0; white-space: nowrap; }
+  .stk .ok { background: #D1FADF; color: #05603A; } .stk .ng { background: #FEE4E2; color: #912018; } .stk .zero { background: #F2F4F7; color: #98A2B3; }
   .lvlegend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; margin: 4px 0; } .lvlegend .lvc { font-size: 12px; line-height: 18px; padding: 0 6px; }
   .lvc b { margin-right: 2px; }
   .dc .evb.pv, .card.evc.pv { border-left-color: #667085; } .dc .evb.pv { background: #EEF0F3; color: #344054; }
@@ -345,7 +357,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16p';
+  var SCREEN_VERSION = '2026-11-16q';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -479,7 +491,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg' || location.hash === '#/etc') { reData = null; etcData = null; stData = null; pfData = null; bidData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/kg' || location.hash === '#/etc' || location.hash === '#/find') { reData = null; etcData = null; if (location.hash === '#/find') fIdx = null; stData = null; pfData = null; bidData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -511,6 +523,7 @@
     else if (h === '#/rere') openRe();
     else if (h === '#/kg') openKg();
     else if (h === '#/etc') openEtc();
+    else if (h === '#/find') openFind();
     else if (h === '#/cal' || h.indexOf('#/cal/') === 0) openCal(h.slice(6));
     else loadList(false);
   }
@@ -733,7 +746,8 @@
   function renderList() {
     var d = listCache;
     if (!d) return;
-    var html = '<a class="btn newbtn" href="#/new">＋ 新しい受注を登録</a>';
+    var html = '<a class="btn newbtn" href="#/new">＋ 新しい受注を登録</a>' +
+      '<a class="findbar" href="#/find">🔍 過去の修理をさがす<small>名前・電話番号・車のナンバー・修理＃</small></a>';
     html += '<div class="tabs">' + TABS.map(function (t) {
       return '<button class="tab' + (listTab === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '">' + t[1] + '<span class="n">' + (d[t[0]] || []).length + '</span></button>';
     }).join('') + '</div>';
@@ -1623,6 +1637,7 @@
       '<div class="meta">' + esc(d.date) + (d.time ? ' ' + esc(d.time) + '〜' : '') + ' <button type="button" class="mini" data-redate="1">日程を変更</button>　' + esc([d.model, d.need ? d.need + '本' : '', d.grade].filter(Boolean).join('・')) + (d.rerepair || d.kind === 'その他' ? '' : ' <button type="button" class="mini" data-replan="1">保証プランを変える</button>') + '</div>' +
       (d.staffAll ? '<div class="meta">修理担当：<b>' + esc(d.staff || '未定') + '</b> <button type="button" class="mini" data-restaff="1">担当を変える</button></div>' : '') +
       (d.mileageCol ? '<div class="meta" id="oMileBox">' + mileHtml(d) + '</div>' : '') +
+      (d.plate ? '<div class="meta">車のナンバー：<b>' + esc(d.plate) + '</b></div>' : '') +
       '<div class="chips"><span class="chip kind">' + esc(d.kind) + '</span><span class="chip ' + (full ? 'done' : 'state') + '">' + esc(d.state) + '</span>' +
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
@@ -1644,7 +1659,7 @@
       if (!it.result && !firstOpen) firstOpen = it.id;
       var cls = it.result === '済' ? ' done' : (it.result === '該当なし' ? ' na' : '');
       var mark = it.result === '済' ? '✓' : (it.result === '該当なし' ? 'ー' : '');
-      var badge = isPhotoItem(it) && !it.result ? '<span class="badge auto">📷 押すと写真をDropboxに入れられます</span>' : it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : it.id === 'C45' ? (it.result ? '' : '<span class="badge auto">在庫の「戻りが届いた」で自動</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
+      var badge = isPhotoItem(it) && !it.result ? '<span class="badge auto">📷 押すと写真をDropboxに入れられます</span>' : isPlateItem(it) && !it.result ? '<span class="badge auto">🚗 押すとナンバーを入れられます</span>' : it.type === '自動' ? (it.id === 'C42' && d.koguchi ? (it.result ? '' : '<span class="badge auto">現金を選ぶと自動で記入</span>') : it.id === 'C45' ? (it.result ? '' : '<span class="badge auto">在庫の「戻りが届いた」で自動</span>') : '<span class="badge auto">自動化予定</span>') : (it.type === 'スキャン' && !it.result ? '<span class="badge scan">' + (it.id === 'C12' ? 'ケースを読む' : it.id === 'C49' ? '新品を用意' : 'モジュールを読む') + '</span>' : '');
       var val = it.value;
       if (it.id === 'C49' && val) { var pm = /棚から(\d+)本・ユニット(\d+)台・余り(\d+)本/.exec(val); if (pm) val = newPlanWords({ fromShelf: +pm[1], units: +pm[2], toShelf: +pm[3] }, '').replace(/<\/?b>/g, '').replace('開けて 本使い、', '開けて使い、'); }
       var by = it.result ? (it.result === '該当なし' ? '該当なし　' : '') + (val ? val + (it.id === 'C07' ? '枚　' : '　') : '') + it.by + '　' + it.at : '';
@@ -1790,12 +1805,33 @@
     next();
   });
   document.addEventListener('click', function (e) {
+    if (!e.target.closest || !current) return;
+    var pd = e.target.closest('[data-platedone]'), ps = e.target.closest('[data-platesave]');
+    if (!pd && !ps) return;
+    var k = current.key, v = ($('oPlate') || {}).value || '';
+    loading(true);
+    call('orderPlate', { key: k, plate: v }).then(function (r) {
+      if (current && current.key === k) current = r;
+      okToast((r.notes || [])[0] || '保存しました');
+      var it = current.items.filter(isPlateItem)[0];
+      if (pd && it && !it.result) { openInline = ''; send(it.id, '済'); } else renderOrder(false);
+    }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+  });
+  document.addEventListener('click', function (e) {
     if (!e.target.closest || !e.target.closest('[data-phdone]') || !current) return;
     var it = current.items.filter(isPhotoItem)[0];
     if (it && !it.result) { openInline = ''; send(it.id, '済'); }
   });
+  function isPlateItem(it) { return it && (it.id === 'C21' || /エラー内容と車の傷/.test(String(it.label || ''))); }
+  function plateHtml(it) {
+    return '<div class="lbl2">車のナンバー</div><input class="f" id="oPlate" value="' + esc(current.plate || '') + '" placeholder="例：北九州 300 さ 12-34" autocomplete="off">' +
+      '<div class="meta" style="margin:2px 0 8px">受注シートの備考に「ナンバー：…」と書きます。過去の修理をさがすときにも使えます</div>' +
+      '<button class="btn" data-platedone="1">ナンバーを保存して、確認済みにする</button>' +
+      '<button class="btn sub" data-platesave="1" style="margin-top:6px">ナンバーだけ保存（確認はまだ）</button>';
+  }
   function inlineHtml(it) {
     if (isPhotoItem(it)) return photoHtml(it);
+    if (isPlateItem(it)) return plateHtml(it);
     if (it.type === 'スキャン') return it.id === 'C12' ? caseHtml() : it.id === 'C49' ? newModHtml() : chargeHtml();
     if (it.type === '選択') {
       return '<div class="inline"><div class="opts">' + ['現金', 'カード', '振込', '掛け振込'].map(function (p) {
@@ -1885,6 +1921,7 @@
         return;
       }
       if (isPhotoItem(it)) { openInline = openInline === itemId ? '' : itemId; renderOrder(false); if (openInline) photoLoad(); return; }
+      if (isPlateItem(it)) { openInline = openInline === itemId ? '' : itemId; renderOrder(false); var pi = $('oPlate'); if (pi && openInline) pi.focus(); return; }
       if (it.type === '選択' || it.type === '入力') { openInline = openInline === itemId ? '' : itemId; renderOrder(false); return; }
       if (it.type === 'スキャン') {
         openInline = openInline === itemId ? '' : itemId;
@@ -2230,6 +2267,80 @@
         call('kgCancel', { key: key }).then(function (d) { kgData = d; renderKg(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
     }
+  });
+
+  // ---- 過去の修理をさがす（名前・電話番号・車のナンバー・修理＃）----
+  var fIdx = null, fIdxAt = 0, fQ = '', fOpen = '';
+  function openFind() {
+    setNav('#/', '#/');
+    $('title').textContent = '過去の修理をさがす';
+    renderFind();
+    if (!fIdx || Date.now() - fIdxAt > 10 * 60 * 1000) {
+      call('newFind').then(function (d) {
+        fIdx = d.rows.map(function (r) {
+          var o = {}; d.cols.forEach(function (c, i) { o[c] = r[i]; });
+          o.cancel = Number(o.cancel) === 1; o.isRe = Number(o.isRe) === 1;
+          o.tel = nDigits(o.phone); o.nn = nNorm(o.name); o.pl = fPlateNorm(o.plate); o.pld = nDigits(o.plate); o.non = nNorm(o.no);
+          o.all = nNorm([o.name, o.phone, o.plate, o.no, o.model, o.note, o.address].join(' '));
+          return o;
+        });
+        fIdxAt = Date.now();
+        if (location.hash === '#/find') renderFind(true);
+      }).catch(function (e) { toast(e.message); });
+    }
+  }
+  function fPlateNorm(v) { return nNorm(v).replace(/[-ー－]/g, ''); }
+  function fSearch(q) {
+    var n = nNorm(q).replace(/[-ー－]/g, ''), digits = nDigits(q);
+    if (!n) return [];
+    var isNo = /^[a-z]{1,2}\d{1,5}$/i.test(n) || /^\d{2,4}\/[a-z]+\d+$/i.test(n);
+    var words = String(q).split(/[\s　]+/).map(function (w) { return nNorm(w).replace(/[-ー－]/g, ''); }).filter(Boolean);
+    return fIdx.filter(function (o) {
+      if (isNo) return o.non === n || String(o.key).toLowerCase() === n;
+      if (digits.length >= 3 && digits.length >= n.length - 1) return (o.tel && o.tel.indexOf(digits) >= 0) || (o.pld && o.pld.indexOf(digits) >= 0) || nDigits(o.no) === digits;
+      return words.every(function (w) { return o.all.indexOf(w) >= 0 || (o.pl && o.pl.indexOf(w) >= 0); });
+    }).sort(function (a, b) { return (b.d === null ? 9e15 : b.d) - (a.d === null ? 9e15 : a.d); });
+  }
+  function renderFind(keepFocus) {
+    var box = $('fRes');
+    if (!box || !keepFocus) {
+      $('main').innerHTML = '<input class="f" id="fQ" type="search" placeholder="名前・電話番号・車のナンバー・修理＃（例：R480）" value="' + esc(fQ) + '" autocomplete="off" style="font-size:17px">' +
+        '<div class="meta" style="margin:2px 0 8px">名前は一部でも（「山田 太」のように空白で区切ると両方を含むもの）。ナンバーは数字だけでも探せます</div><div id="fRes"></div>';
+      box = $('fRes');
+      var i = $('fQ'); if (i && !fQ) i.focus();
+    }
+    if (!fIdx) { box.innerHTML = '<div class="note">過去の修理を読み込み中です…（全部の年度）</div>'; return; }
+    if (!fQ) { box.innerHTML = '<div class="note">' + fIdx.length.toLocaleString() + '件の受注（全部の年度・再修理も）から探します</div>'; return; }
+    var hits = fSearch(fQ);
+    var html = '<div class="meta" style="margin-bottom:4px">' + hits.length + '件' + (hits.length > 60 ? '（新しい順に60件まで表示）' : '') + '</div>';
+    html += hits.slice(0, 60).map(function (o) {
+      var on = fOpen === o.key + '|' + o.no;
+      var st = o.cancel ? '<span class="chip" style="background:#FEE4E2;color:#912018">キャンセル</span>' : o.isRe ? '<span class="chip" style="background:#FEF0C7;color:#93370D">再修理</span>' : '';
+      var amt = Number(String(o.amount || '').replace(/[^0-9.-]/g, ''));
+      var h = '<div class="card tap" data-fopen="' + esc(o.key + '|' + o.no) + '"><div class="row1"><span class="no">' + esc(o.no || '番号なし') + '</span><span class="date">' + esc(o.date || '日付なし') + '</span></div>' +
+        '<div class="name">' + esc(o.name || '（名前なし）') + ' ' + st + '</div>' +
+        '<div class="meta">' + esc([o.store, o.model, o.grade].filter(Boolean).join('・')) + (amt ? '・' + amt.toLocaleString() + '円（税込）' : '') + (o.plate ? '・🚗 ' + esc(o.plate) : '') + '</div>';
+      if (on) {
+        var row = function (k, v) { return v ? '<div><b>' + k + '</b>' + esc(v) + '</div>' : ''; };
+        h += '<div class="fdet">' + row('電話番号', o.phone) + row('住所', [o.zip ? '〒' + o.zip : '', o.address].filter(Boolean).join(' ')) + row('車のナンバー', o.plate) +
+          row('修理区分', o.kubun) + row('修理内容', o.content) + row('支払方法', o.payment) + row('保証期限', o.warranty) + row('走行距離', o.mileage ? o.mileage + ' km' : '') +
+          row('バッテリー内容', o.battery) + row('放電テスト', o.test) + row('元の修理', o.parent) + row('備考', o.note) +
+          (o.key ? '<a class="btn sub" style="margin-top:6px" href="#/order/' + encodeURIComponent(o.key) + '">この修理の画面を開く（チェックリスト・粗利）</a>' : '') + '</div>';
+      }
+      return h + '</div>';
+    }).join('');
+    if (!hits.length) html += '<div class="empty">見つかりません</div>';
+    box.innerHTML = html;
+  }
+  document.addEventListener('input', function (e) {
+    if (location.hash !== '#/find' || !e.target || e.target.id !== 'fQ') return;
+    fQ = e.target.value; fOpen = ''; renderFind(true);
+  });
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/find' || !e.target.closest) return;
+    if (e.target.closest('a')) return;
+    var t = e.target.closest('[data-fopen]'); if (!t) return;
+    var k = t.getAttribute('data-fopen'); fOpen = fOpen === k ? '' : k; renderFind(true);
   });
 
   // ---- ETC利用履歴 ----
@@ -3688,6 +3799,7 @@
     loading(true);
     call('newForm').then(function (d) { nForm = d; renderNew(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     if (!nRank) nRankLoad();
+    nStock = null; nStockLoad();
     nIdxLoad();
   }
   function nSeg(name, opts, cur) {
@@ -3732,7 +3844,7 @@
       return '<option value="' + esc(m) + '">' + esc(m + (nm ? '　' + nm : '')) + '</option>';
     }).join('') + '</select>';
     html += '<input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="一覧にない車種は、ここに入力（例：ZVW30）"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
-    html += '<div id="nRank"></div><div class="lbl2">グレード</div>' + nSeg('grade', d.grades, nf.grade);
+    html += '<div id="nRank"></div><div class="lbl2">グレード</div>' + nSeg('grade', d.grades, nf.grade) + '<div id="nStock"></div>';
     html += '<div data-not="re"><label class="f" for="nAmount">金額（税込・円）</label><input class="f" id="nAmount" type="number" inputmode="numeric"><div class="note" id="nPrice"></div>';
     html += '<div class="lbl2">支払方法（決まっていなければ空欄。もう一度押すと外れます）</div>' + nSeg('payment', d.payments, nf.payment) + '</div>';
     html += '<div class="note" data-only="re" style="margin-top:12px">金額は0円で登録します（保証期限は元の修理のまま）。工賃・出張費をいただく場合は、売上に入るよう別に「その他」でも登録してください。</div>';
@@ -3882,8 +3994,58 @@
       b.appendChild(sp);
     });
   }
+  // ---- 在庫が足りているか（車種・グレードを選んだとき）：種類 × ランクごとに、その車種の本数とくらべる ----
+  var nStock = null, nStockBusy = false;
+  function nStockLoad() {
+    if (nStockBusy) return;
+    nStockBusy = true;
+    call('stockFit').then(function (d) { nStock = d; }).catch(function () { nStock = { err: true }; }).then(function () { nStockBusy = false; nStockShow(); });
+  }
+  function nStockTypes(d, w, m) {
+    // 引当のルールで使える種類（ルールがない種類は使える）。G3 の1年は車種の「1年保証でG3を使う」
+    return d.types.filter(function (t) {
+      var r = d.rules.filter(function (x) { return x.type === t && x.w === w; })[0];
+      if (!r) return true;
+      if (r.ok === '使える') return true;
+      if (r.ok === '車種による') return !!d.g3[m];
+      return false;
+    });
+  }
+  function nStockShow() {
+    var box = $('nStock');
+    if (!box) return;
+    if (nf.kind === '再修理' || nf.kind === 'その他') { box.innerHTML = ''; return; }
+    var m = nModelKey(nVal('nModel'));
+    if (!m) { box.innerHTML = ''; return; }
+    if (!nStock) { box.innerHTML = '<div class="meta" style="margin:6px 0">在庫を確かめています…</div>'; return; }
+    var d = nStock;
+    if (d.err) { box.innerHTML = ''; return; }
+    var need = d.need[m] || 0;
+    if (!need) { box.innerHTML = '<div class="meta" style="margin:6px 0">' + esc(m) + ' のモジュール本数が「車種」シートにないため、在庫とくらべられません</div>'; return; }
+    var selW = /新品/.test(nf.grade || '') ? '新品' : (d.warranty[nf.grade] || '');
+    var rowsW = [['半年', '半年'], ['1年', '使用可能'], ['2年', '使用可能']];
+    var h = '<div class="stk"><div style="font-weight:800;color:#1F3A5F">在庫：' + esc(m) + ' は ' + need + '本で1台（' + esc(d.at) + ' 時点）</div>' +
+      '<div class="meta" style="margin:0 0 4px">種類・ランクごと（ちがうランクや種類は足していません）</div>';
+    rowsW.forEach(function (w) {
+      var types = nStockTypes(d, w[0], m), cells = [];
+      types.forEach(function (t) { d.ranks.forEach(function (r) { var n = d.shelves[w[1] + '/' + t + '/' + r] || 0; if (n > 0) cells.push({ t: t, r: r, n: n }); }); });
+      cells.sort(function (a, b) { return b.n - a.n; });
+      var okCells = cells.filter(function (c) { return c.n >= need; });
+      var up = (d.upcoming || {})[w[0]];
+      var head = okCells.length ? '<b style="color:#067647">✓ 足りる</b>（' + okCells.map(function (c) { return c.t + ' ' + c.r + ' ' + Math.floor(c.n / need) + '台分'; }).join('・') + '）'
+        : cells.length ? '<b style="color:#B42318">✕ 足りない</b>（いちばん多い ' + cells[0].t + ' ' + cells[0].r + ' ' + cells[0].n + '本・あと' + (need - cells[0].n) + '本）' : '<b style="color:#B42318">✕ 0本</b>';
+      h += '<div class="row' + (selW === w[0] ? ' sel' : '') + '"><span class="w">' + w[0] + '</span><span style="flex:1;min-width:0">' + head +
+        (cells.length ? '<br>' + cells.slice(0, 8).map(function (c) { return '<span class="chip2 ' + (c.n >= need ? 'ok' : 'ng') + '">' + c.t + ' ' + c.r + ' ' + c.n + '本</span>'; }).join('') : '') +
+        (up ? '<br><small style="color:#667085">これからの受注（まだ充電していない）' + up.n + '件・' + up.mods + '本分</small>' : '') + '</span></div>';
+    });
+    var newN = (d.newMods || 0) + (d.newUnits || 0) * (d.newUnitSize || 28), upN = (d.upcoming || {})['新品'];
+    h += '<div class="row' + (selW === '新品' ? ' sel' : '') + '"><span class="w">新品</span><span style="flex:1;min-width:0">' + (newN >= need ? '<b style="color:#067647">✓ 足りる</b>' : '<b style="color:#B42318">✕ 足りない</b>') +
+      '（新品棚 ' + (d.newMods || 0) + '本・新品ユニット ' + (d.newUnits || 0) + '台）' + (upN ? '<br><small style="color:#667085">これからの受注（新品）' + upN.n + '件・' + upN.mods + '本分</small>' : '') + '</span></div>';
+    h += '<div style="font-size:11px;color:#667085;margin-top:4px">半年＝半年の棚、1年・2年＝使用可能の棚。使える種類は「引当のルール」シートのとおり。これからの受注は、どの棚から出すか決まっていないので引いていません</div></div>';
+    box.innerHTML = h;
+  }
   function nModelMark() {
-    nRankShow();
+    nRankShow(); nStockShow();
     var box = $('nModelBtns'); if (!box) return;
     var v = nModelKey(nVal('nModel'));
     box.querySelectorAll('[data-nmodel]').forEach(function (b) { b.classList.toggle('on', !!v && nModelKey(b.getAttribute('data-nmodel')) === v); });
@@ -4141,6 +4303,7 @@
       nSetSeg(name, v);
       if (name === 'store') nAutoKubun();
       if (name === 'store' || name === 'grade') nPrice();
+      if (name === 'grade') nStockShow();
       return;
     }
     if ((t = e.target.closest('[data-nmodel]'))) { $('nModel').value = t.getAttribute('data-nmodel'); nPrice(); return; }
