@@ -244,6 +244,27 @@
   .cal .bars { display: flex; flex-direction: column; gap: 2px; }
   .cal .bar { height: 5px; border-radius: 3px; }
   .cal .more { font-size: 10px; color: var(--sub); }
+  /* 11/16 大きいカレンダー：修理（時刻・名前）・予定・休む人を文字で */
+  body.wide main { max-width: 1200px; padding-left: 8px; padding-right: 8px; }
+  .cal.big { gap: 2px; }
+  .cal.big .dc { min-height: 104px; padding: 3px 2px 4px; border-radius: 6px; }
+  .cal.small .dc { min-height: 66px; }
+  .dc .dtop { display: flex; align-items: center; gap: 2px; }
+  .dc .rc { display: block; font-size: 10px; line-height: 14px; padding: 0 2px 0 3px; border-left: 3px solid #8A8F96; background: #F2F4F7; border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; color: #1d2433; }
+  .dc .rc.done { opacity: .45; }
+  .dc .lvn { display: block; font-size: 9.5px; line-height: 13px; color: #7A4B00; background: #FFE8B3; border-radius: 2px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .dc .evb.pv, .card.evc.pv { border-left-color: #667085; } .dc .evb.pv { background: #EEF0F3; color: #344054; }
+  @media (min-width: 700px) { .cal.big .dc { min-height: 120px; } .dc .rc, .dc .lvn, .dc .evb { font-size: 12px; line-height: 17px; } .cal .dn { font-size: 15px; } }
+  .calview { display: flex; gap: 6px; margin: 0 0 8px; }
+  .calview button { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 7px; font-size: 14px; color: var(--navy); }
+  .calview button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .clday { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin: 0 0 8px; }
+  .clday.today { border: 2px solid #F28C28; }
+  .clday h4 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+  .clrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px dashed var(--line); font-size: 14px; cursor: pointer; }
+  .clrow .t { width: 44px; flex: none; font-variant-numeric: tabular-nums; color: var(--sub); }
+  .clrow .sb { width: 8px; height: 14px; border-radius: 2px; flex: none; align-self: center; }
+  .nconf { border: 2px solid #B42318; background: #FEF3F2; color: #912018; border-radius: 10px; padding: 8px 10px; margin: 6px 0; font-size: 14px; }
   .cal .cnt { margin-left: auto; font-size: 11px; color: var(--sub); }
   .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
   .legend i { display: inline-block; width: 12px; height: 6px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
@@ -311,7 +332,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16a';
+  var SCREEN_VERSION = '2026-11-16b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -449,6 +470,7 @@
   });
   function route() {
     var h = location.hash || '#/list';
+    document.body.classList.toggle('wide', h.indexOf('#/cal') === 0);
     var m = /^#\/order\/(.+)$/.exec(h);
     scanHandlers = {};
     if (m) { openOrder(decodeURIComponent(m[1])); return; }
@@ -503,23 +525,65 @@
     if (n < 0 && ym < calData.min) { toast('これより前の月は見られません（今年度と前年度だけ）'); return; }
     location.hash = '#/cal/' + ym;
   }
-  function renderCal() {
-    var d = calData;
+  // 月のカレンダーのマス（予定のカレンダーと、新しい受注の日付選び）。opt：{ sel, attr:'data-cald', max, small }
+  function calShort(n) { var s = String(n || '').replace(/[（(].*$/, '').trim(); var a = s.split(/[\s　]+/); return (a[0] || s).slice(0, 4); }
+  function calLvText(lvs) {
+    if (!lvs || !lvs.length) return '';
+    return '休 ' + lvs.map(function (x) { return calShort(x.name) + (x.half === '午前' ? '(前)' : x.half === '午後' ? '(後)' : ''); }).join('・');
+  }
+  function calGridHtml(d, opt) {
+    opt = opt || {};
+    var attr = opt.attr || 'data-cald', max = opt.max || (window.innerWidth >= 700 ? 6 : 4);
     var first = new Date(d.y, d.m - 1, 1).getDay(), last = new Date(d.y, d.m, 0).getDate();
-    var html = '<div class="calhead"><button type="button" data-calm="-1">◀</button><b>' + d.y + '年' + d.m + '月</b>' +
-      '<span><button type="button" class="thism" data-calm="0">今月</button> <button type="button" data-calm="1">▶</button></span></div>';
-    html += '<div class="cal">' + ['日', '月', '火', '水', '木', '金', '土'].map(function (w, i) { return '<div class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</div>'; }).join('');
+    var html = '<div class="cal big' + (opt.small ? ' small' : '') + '">' + ['日', '月', '火', '水', '木', '金', '土'].map(function (w, i) { return '<div class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</div>'; }).join('');
     for (var i = 0; i < first; i++) html += '<div class="dc empty"></div>';
     for (var day = 1; day <= last; day++) {
-      var list = d.days[day] || [], wd = (first + day - 1) % 7;
-      html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === calSel ? ' sel' : '') + '" data-cald="' + day + '">' +
-        '<span style="display:flex;align-items:center"><span class="dn">' + day + '</span>' + ((d.leaves || {})[day] ? '<span class="lv">休' + (d.leaves[day].length > 1 ? d.leaves[day].length : '') + '</span>' : '') + (list.length ? '<span class="cnt">' + list.length + '</span>' : '') + '</span>' +
-        '<span class="bars">' + ((d.events || {})[day] || []).slice(0, 2).map(function (ev) { return '<span class="evb">' + esc(ev.title) + '</span>'; }).join('') +
-        list.slice(0, 4).map(function (o) { return '<span class="bar" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.35' : '') + '"></span>'; }).join('') +
-        (list.length > 4 ? '<span class="more">＋' + (list.length - 4) + '</span>' : '') + '</span></button>';
+      var list = d.days[day] || [], wd = (first + day - 1) % 7, evs = (d.events || {})[day] || [], lvs = (d.leaves || {})[day] || [];
+      var room = max - Math.min(evs.length, 2);
+      html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === opt.sel ? ' sel' : '') + '" ' + attr + '="' + day + '">' +
+        '<span class="dtop"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '件</span>' : '') + '</span>' +
+        (lvs.length ? '<span class="lvn">' + esc(calLvText(lvs)) + '</span>' : '') +
+        evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '🔒' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
+        list.slice(0, Math.max(room, 1)).map(function (o) { return '<span class="rc' + (o.pct >= 100 ? ' done' : '') + '" style="border-left-color:' + calColor(o) + '">' + esc((o.time ? o.time + ' ' : '') + calShort(o.name)) + '</span>'; }).join('') +
+        (list.length > Math.max(room, 1) ? '<span class="more">＋' + (list.length - Math.max(room, 1)) + '件</span>' : '') + '</button>';
     }
-    html += '</div>';
-    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>薄い色＝完了</span></div>';
+    return html + '</div>';
+  }
+  // その日の中身（修理・予定・休み）を1日ぶん
+  function calDayRows(d, day) {
+    var list = d.days[day] || [], evs = (d.events || {})[day] || [], lvs = (d.leaves || {})[day] || [];
+    var h = '';
+    if (lvs.length) h += '<div class="meta" style="color:#7A4B00">休み：' + lvs.map(function (x) { return esc(x.name) + '（' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + '）'; }).join('　') + '</div>';
+    h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '🔒 ' : '') + esc(ev.title) + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + '</span></div>'; }).join('');
+    h += list.map(function (o) {
+      return '<div class="clrow" data-key="' + esc(o.key) + '"><span class="t">' + esc(o.time || '―') + '</span><span class="sb" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.4' : '') + '"></span><span><b>' + esc(o.no) + '</b> ' + esc(o.name) + '<small class="meta">　' + esc([o.model, o.store, o.kubun].filter(Boolean).join('・')) + (o.pct >= 100 ? '・完了' : '') + '</small></span></div>';
+    }).join('');
+    return h;
+  }
+  var calView = 'grid';
+  try { calView = localStorage.getItem('hv_calview') || 'grid'; } catch (e) { /* なくても動く */ }
+  function renderCal() {
+    var d = calData;
+    var html = '<div class="calhead"><button type="button" data-calm="-1">◀</button><b>' + d.y + '年' + d.m + '月</b>' +
+      '<span><button type="button" class="thism" data-calm="0">今月</button> <button type="button" data-calm="1">▶</button></span></div>';
+    html += '<div class="calview"><button type="button" data-calview="grid"' + (calView !== 'list' ? ' class="on"' : '') + '>カレンダー</button><button type="button" data-calview="list"' + (calView === 'list' ? ' class="on"' : '') + '>一覧（1日ずつ）</button></div>';
+    if (calView === 'list') {
+      var lastD = new Date(d.y, d.m, 0).getDate(), any = false;
+      for (var dd = 1; dd <= lastD; dd++) {
+        var has = (d.days[dd] || []).length || ((d.events || {})[dd] || []).length || ((d.leaves || {})[dd] || []).length;
+        if (!has && dd !== d.today) continue;
+        any = true;
+        var dt0 = new Date(d.y, d.m - 1, dd), w0 = dt0.getDay();
+        html += '<div class="clday' + (dd === d.today ? ' today' : '') + '"><h4><span style="color:' + (w0 === 0 ? '#B42318' : w0 === 6 ? '#2563A8' : 'inherit') + '">' + d.m + '/' + dd + '（' + '日月火水木金土'.charAt(w0) + '）</span><small class="meta">' + ((d.days[dd] || []).length ? (d.days[dd] || []).length + '件' : '') + '</small>' +
+          '<button type="button" class="mini" data-cald="' + dd + '" style="margin-left:auto">この日を開く</button></h4>' + (calDayRows(d, dd) || '<div class="meta">予定はありません</div>') + '</div>';
+      }
+      if (!any) html += '<div class="empty">この月の予定はありません</div>';
+      html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>🔒 自分だけの予定</span><span><i style="background:#6B4FA0"></i>修理以外の予定</span><span>🔒 自分だけの予定</span></div>';
+      $('main').innerHTML = html;
+      return;
+    }
+    html += calGridHtml(d, { sel: calSel });
+    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>🔒＝自分だけの予定　薄い色＝完了</span></div>';
     html += '<div class="note">この月 ' + d.count + ' 件</div>';
     if (calSel) {
       var sel = d.days[calSel] || [];
@@ -531,15 +595,17 @@
       // 修理以外の予定
       var evs = (d.events || {})[calSel] || [];
       html += evs.map(function (ev) {
-        return '<div class="card evc"><div class="row1"><span class="no">' + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
-          '<div class="meta">' + esc([ev.store, ev.memo, '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
-          (me && (ev.by === me.name || me.role === '店長' || me.role === '管理者') ? '<button type="button" class="mini" data-evdel="' + esc(ev.id) + '" style="margin-top:6px">取り消す</button>' : '') + '</div>';
+        return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">' + (ev.private ? '🔒 ' : '') + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
+          '<div class="meta">' + esc([ev.store, ev.memo, ev.private ? '自分だけの予定（ほかの人には見えません）' : '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
+          (me && (ev.mine || ev.by === me.name || (!ev.private && (me.role === '店長' || me.role === '管理者'))) ? '<button type="button" class="mini" data-evdel="' + esc(ev.id) + '" style="margin-top:6px">取り消す</button>' : '') + '</div>';
       }).join('');
       if (evOpen) {
         html += '<div class="card evc"><div class="row1"><span class="no">' + d.m + '/' + calSel + ' に予定を入れる</span></div>' +
           '<input class="f" id="evTitle" placeholder="内容（例：〇〇自動車 来店・打ち合わせ・部品の納品）">' +
           '<div style="display:flex;gap:6px"><input class="f" type="time" id="evTime" style="flex:1;min-width:0"><select class="f" id="evStore" style="flex:1;min-width:0"><option value="">店舗（なくても可）</option><option>苅田</option><option>インター</option><option>出張</option><option>営業</option></select></div>' +
-          '<input class="f" id="evMemo" placeholder="メモ（なくても可）"><button class="btn" data-evsave="1">予定を入れる</button><button class="btn sub" data-evclose="1">やめる</button></div>';
+          '<input class="f" id="evMemo" placeholder="メモ（なくても可）">' +
+          '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="evPriv" style="width:22px;height:22px"> 🔒 自分だけの予定にする（ほかの人のカレンダーには出ません）</label>' +
+          '<button class="btn" data-evsave="1">予定を入れる</button><button class="btn sub" data-evclose="1">やめる</button></div>';
       } else html += '<button class="btn sub" data-evopen="1">＋ 修理以外の予定を入れる</button>';
       html += sel.length ? sel.map(function (o) {
         var full = o.pct >= 100;
@@ -561,11 +627,19 @@
       if (n === 0) { location.hash = '#/cal/' + new Date().getFullYear() + '-' + (new Date().getMonth() + 1); return; }
       calShift(n); return;
     }
-    if ((t = e.target.closest('[data-cald]'))) { calSel = Number(t.getAttribute('data-cald')); evOpen = false; renderCal(); return; }
+    if ((t = e.target.closest('[data-calview]'))) { calView = t.getAttribute('data-calview'); try { localStorage.setItem('hv_calview', calView); } catch (er) { /* なくても動く */ } renderCal(); return; }
+    if ((t = e.target.closest('.clrow[data-key]'))) { location.hash = '#/order/' + encodeURIComponent(t.getAttribute('data-key')); return; }
+    if ((t = e.target.closest('[data-cald]'))) {
+      calSel = Number(t.getAttribute('data-cald')); evOpen = false;
+      if (calView === 'list') { calView = 'grid'; try { localStorage.setItem('hv_calview', 'grid'); } catch (er) { /* なくても動く */ } }
+      renderCal();
+      var hd = document.querySelector('.h2'); if (hd && t.closest('.cal')) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     if (e.target.closest('[data-evopen]')) { evOpen = true; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
     if (e.target.closest('[data-evclose]')) { evOpen = false; renderCal(); return; }
     if (e.target.closest('[data-evsave]')) {
-      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value };
+      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked) };
       if (!ev.title.trim()) { toast('内容を入れてください'); return; }
       loading(true);
       call('eventAdd', ev).then(function (r) { calData.events = r.events; evOpen = false; renderCal(); okToast('予定を入れました'); })
@@ -3305,6 +3379,7 @@
     nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false, staff: [] };
   }
   function openNew() {
+    nCalData = null; nCalBusy = '';
     setNav('#/list', '#/list');
     $('title').textContent = '新しい受注の登録';
     nResult = null;
@@ -3340,7 +3415,7 @@
       (d.reChoices || []).map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>';
     html += '<label class="f" for="nName">お名前・会社名 <span class="req">必須</span></label><input class="f" id="nName" autocomplete="off">';
     html += nSeg('sex', d.sex, nf.sex);
-    html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div>';
+    html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div><div id="nCal"></div>';
     html += '<label class="f" for="nTime">開始時刻（わかれば）</label><input class="f" id="nTime" type="time" step="900">';
     html += '<div class="lbl2">店舗 <span class="req">必須</span></div>' + nSeg('store', d.stores, nf.store);
     html += '<div class="lbl2">修理区分</div>' + nSeg('kubun', d.kubun, nf.kubun);
@@ -3377,12 +3452,71 @@
     $('nModel').addEventListener('input', nPrice);
     $('nModelSel').addEventListener('change', function () { if (this.value) { $('nModel').value = this.value; nPrice(); } });
     $('nAmount').addEventListener('input', function () { if (String(this.value) !== String(nf.autoAmount)) nf.autoAmount = null; });
-    $('nHold').addEventListener('change', function () { $('nDate').disabled = this.checked; });
+    $('nHold').addEventListener('change', function () { $('nDate').disabled = this.checked; nCalRender(); });
+    $('nDate').addEventListener('change', nCalSync);
+    $('nTime').addEventListener('change', nCalRender);
+    nCalSync();
     $('nParentNo').addEventListener('input', function () { if (this.value.trim()) { nf.parentKey = ''; nf.parent = null; nRenderParents(); } });
     $('nFind').addEventListener('input', function () { clearTimeout(nFindT); nFindT = setTimeout(nFindRender, 150); });
     nApplyKind();
     nPrice();
   }
+  // ---- 修理日：予定のカレンダーで、その日の受注・休み・予定を見ながら選ぶ ----
+  var nCalData = null, nCalBusy = '';
+  function nCalYm(v) { var m = /^(\d{4})-(\d{2})/.exec(v || ''); return m ? m[1] + '-' + m[2] : ''; }
+  function nCalCur() { return nCalData ? nCalData.y + '-' + (nCalData.m < 10 ? '0' : '') + nCalData.m : ''; }
+  function nCalLoad(ym) {
+    if (nCalBusy === ym) return;
+    nCalBusy = ym;
+    var box = $('nCal'); if (box && !nCalData) box.innerHTML = '<div class="meta" style="margin:6px 0">この月の受注を読み込み中…</div>';
+    call('cal', { ym: ym }).then(function (d) { if (nCalBusy !== ym) return; nCalData = d; nCalRender(); }).catch(function (e) { toast(e.message); }).then(function () { if (nCalBusy === ym) nCalBusy = ''; });
+  }
+  function nCalSync() {
+    var v = nVal('nDate'), ym = nCalYm(v) || nCalYm(nForm && nForm.today);
+    if (!ym) return;
+    if (ym !== nCalCur()) nCalLoad(ym); else nCalRender();
+  }
+  function nCalRender() {
+    var box = $('nCal');
+    if (!box || !nCalData) return;
+    var d = nCalData, v = nVal('nDate'), hold = $('nHold') && $('nHold').checked;
+    var sel = !hold && nCalYm(v) === nCalCur() ? Number(v.slice(8, 10)) : 0;
+    var h = '<div style="border:1px solid var(--line);border-radius:12px;padding:8px;margin:6px 0 10px;background:#FAFBFC">' +
+      '<div class="calhead" style="margin:0 0 6px"><button type="button" data-npm="-1">◀</button><b style="font-size:16px">' + d.y + '年' + d.m + '月の受注</b><button type="button" data-npm="1">▶</button></div>' +
+      calGridHtml(d, { sel: sel, attr: 'data-npick', max: 3, small: true }) +
+      '<div class="meta" style="margin-top:4px">日を押すと修理日に入ります。色：紺＝苅田・青＝インター・橙＝出張・緑＝営業・赤＝再修理</div>';
+    if (sel) {
+      var list = d.days[sel] || [], dt = new Date(d.y, d.m - 1, sel);
+      h += '<div style="margin-top:8px;font-weight:700">' + d.m + '/' + sel + '（' + '日月火水木金土'.charAt(dt.getDay()) + '）の予定　' + list.length + '件</div>' + (calDayRows(d, sel) || '<div class="meta">この日の予定はまだありません</div>');
+      // ダブルブッキングの確認：同じ店舗・同じ開始時刻
+      var t = nVal('nTime'), st = nf.store;
+      var norm = function (x) { return String(x || '').replace(/店$/, ''); };
+      if (st) {
+        var same = list.filter(function (o) { return norm(o.store) === norm(st); });
+        var clash = t ? same.filter(function (o) { return o.time && o.time.replace(/^0/, '') === t.replace(/^0/, ''); }) : [];
+        if (clash.length) h += '<div class="nconf">⚠ 同じ時間（' + esc(st) + ' ' + esc(t) + '）に ' + clash.map(function (o) { return esc(o.no + ' ' + o.name + '様'); }).join('・') + ' が入っています</div>';
+        else if (same.length) h += '<div class="meta" style="margin-top:4px">この日の' + esc(st) + 'は ' + same.length + '件（' + same.map(function (o) { return esc(o.time || '時刻なし'); }).join('・') + '）</div>';
+      }
+    }
+    h += '</div>';
+    box.innerHTML = h;
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/new' || !e.target.closest) return;
+    var t;
+    if ((t = e.target.closest('[data-npick]'))) {
+      var day = Number(t.getAttribute('data-npick')), d = nCalData;
+      $('nDate').value = d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (day < 10 ? '0' : '') + day;
+      if ($('nHold').checked) { $('nHold').checked = false; $('nDate').disabled = false; }
+      nCalRender(); return;
+    }
+    if ((t = e.target.closest('[data-npm]'))) {
+      var y = nCalData.y, m = nCalData.m + Number(t.getAttribute('data-npm'));
+      if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+      nCalLoad(y + '-' + (m < 10 ? '0' : '') + m); return;
+    }
+    if (e.target.closest('[data-nseg="store"]')) setTimeout(nCalRender, 0);
+  });
   function nVal(id) { var el = $(id); return el ? String(el.value).trim() : ''; }
   function nDigits(v) { return String(v || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); }).replace(/\D/g, ''); }
   function nModelKey(v) {
