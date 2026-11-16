@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16u';
+  var SCREEN_VERSION = '2026-11-16v';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -391,7 +391,16 @@
   // 前に開いたときの画面のデータ（次に開いたとき、まずこれを出してから新しいのに入れ替える）
   function memGet(k) { try { var v = localStorage.getItem('hvrc_m_' + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function memPut(k, v) { try { localStorage.setItem('hvrc_m_' + k, JSON.stringify(v)); } catch (e) { /* 入らなくても動く */ } }
+  // 速さの記録：前の通信で待った時間（3秒以上のとき）を次の通信に付けて送る → サーバーの「速さの記録」シートに残る
+  var lastRt = null;
   function call(action, payload) {
+    var tStart = Date.now();
+    if (lastRt) { payload = Object.assign({}, payload || {}, { _rt: lastRt }); lastRt = null; }
+    var callRaw = callRaw0(action, payload);
+    callRaw.then(function () { var ms = Date.now() - tStart; if (ms >= 3000) lastRt = { a: action, ms: ms }; }, function () { /* 失敗はそのまま */ });
+    return callRaw;
+  }
+  function callRaw0(action, payload) {
     if (FRESH && /^(list|cal|mypage|jobHidden|reReasons|stats|profit)$/.test(action)) { payload = Object.assign({}, payload || {}, { fresh: true }); FRESH = false; }
     var done = function (res, resolve, reject) {
       if (res && res.ok) return resolve(res.data);
@@ -1622,12 +1631,37 @@
     loading(true);
     orderScanHandlers();
     traceData = null; reEdit = false;
+    // 前に開いたときのデータがあれば、待たずに先に出す（新しいのが届いたら入れ替える。11/16〜）
+    var memo = !force ? orderMemGet(key) : null;
+    if (memo) { current = memo; current._stale = true; renderOrder(true); }
     var traceP = call('cntTrace', { key: key }).catch(function () { return null; }); // 同時に聞く（待ち時間を重ねない）
-    call('order', { key: key }).then(function (d) {
-      current = d; renderOrder(true);
+    fetchOrder(key).then(function (d) {
+      if (memo && current && current.key === key && anyPending()) { loading(false); return; } // 先に出した画面で押した分を送っている間は入れ替えない（送り終わると新しい状態が届く）
+      current = d; renderOrder(!memo);
       traceP.then(function (t) { if (t && current && current.key === key) { traceData = t; renderOrder(false); } });
     })
       .catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+  }
+  // 受注の画面のデータ：粗利は後から（店長・管理者だけ）。届いたら今の画面に足す
+  function fetchOrder(key) {
+    return call('order', { key: key, noPf: true }).then(function (d) {
+      orderMemPut(key, d);
+      if (d.pfLater) {
+        call('orderPf', { key: key }).then(function (pf) {
+          if (current && current.key === key) { current.pf = pf; current.pfLater = false; renderOrder(false); }
+        }).catch(function (e) { if (current && current.key === key) { current.pfError = e.message; current.pfLater = false; renderOrder(false); } });
+      }
+      return d;
+    });
+  }
+  // 前に開いた受注（最近の20件）を端末に残す
+  function orderMemGet(key) { var m = memGet('ord') || {}; return m[key] ? JSON.parse(JSON.stringify(m[key])) : null; }
+  function orderMemPut(key, d) {
+    var m = memGet('ord') || {}, keys = memGet('ordk') || [];
+    var c = JSON.parse(JSON.stringify(d)); delete c.pf; delete c.pfLater;
+    m[key] = c; keys = keys.filter(function (k) { return k !== key; }); keys.push(key);
+    while (keys.length > 20) delete m[keys.shift()];
+    memPut('ord', m); memPut('ordk', keys);
   }
 
   // この修理に使ったモジュール（どのユニットから・いつばらした・いつ充電）
@@ -2676,9 +2710,9 @@
     renderOrder(false);
     var key = current.key;
     if (chargeMode === '数') {
-      call('cntCharge', { key: key }).then(function (d) {
+      call('cntCharge', { key: key, noPf: true }).then(function (d) {
         if (!current || current.key !== key) return;
-        cntData = d; cRowsInit(); if (!chosenLane && current.lane) chosenLane = current.lane; renderOrder(false);
+        cntData = d; cRowsInit(); if (!chosenLane && current.lane) chosenLane = current.lane; renderOrder(false); cntPfLater(d, key);
       }).catch(function (e) { toast(e.message); });
       return;
     }
@@ -2688,6 +2722,13 @@
       if (!chosenLane && current.lane) chosenLane = current.lane;
       renderOrder(false);
     }).catch(function (e) { toast(e.message); });
+  }
+  // 充電開始の画面の粗利（店長・管理者だけ）：本数の画面を先に出して、粗利は後から足す
+  function cntPfLater(d, key) {
+    if (!d || !d.pfLater) return;
+    call('cntChargePf', { key: key }).then(function (pf) {
+      if (cntData && cntData.key === key && current && current.key === key) { if ($('main') && document.querySelector('[data-crow]')) cRead(); cntData.pf = pf; renderOrder(false); }
+    }).catch(function () { /* 粗利が出なくても動く */ });
   }
   function cRowsInit() {
     var d = cntData; if (!d) return;
@@ -2863,16 +2904,16 @@
     if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('種類とランクを選んでください'); return; }
     if (rows.some(function (r) { return r.lo !== '' && r.hi !== '' && Number(r.lo) > Number(r.hi); })) { toast('使った数値は「下 〜 上」の順に選んでください'); return; }
     loading(true);
-    return call('cntChargeSave', { key: key, rows: rows, lane: chosenLane, reason: reason || '' }).then(function (d) {
+    return call('cntChargeSave', { key: key, rows: rows, lane: chosenLane, reason: reason || '', noPf: true }).then(function (d) {
       loading(false);
       if (!current || current.key !== key) return;
       if (d.warn) return warnSheet(d.warn).then(function (r) { if (r) return cntSave(r); });
-      cntData = d; cRowsInit(); invData = null;
+      cntData = d; cRowsInit(); invData = null; cntPfLater(d, key);
       if (d.notes && d.notes.length) toast(d.notes.join('／'));
       if (d.checked) {
         okToast(d.have + '本そろいました。「充電開始」をチェックしました');
         openInline = '';
-        return call('order', { key: key }).then(function (o) { current = o; renderOrder(false); listCache = null; });
+        return fetchOrder(key).then(function (o) { current = o; renderOrder(false); listCache = null; });
       }
       renderOrder(false);
     }).catch(function (e) { loading(false); toast(e.message); });
@@ -2947,7 +2988,7 @@
       if (d.warn) { loading(false); return warnSheet(d.warn).then(function (r) { if (r) return newTake(r); }); }
       newPlan = d; openInline = ''; listCache = null; invData = null;
       okToast('新品を出しました（' + (d.done ? d.done.v : '') + '）' + (d.note ? '。' + d.note : ''));
-      return call('order', { key: key }).then(function (o) { if (current && current.key === key) { current = o; renderOrder(false); } });
+      return fetchOrder(key).then(function (o) { if (current && current.key === key) { current = o; renderOrder(false); } });
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
   document.addEventListener('click', function (e) {
@@ -2987,7 +3028,7 @@
       if (d.need && n >= d.need) {
         okToast(n + '本そろいました。「充電開始」をチェックしました');
         openInline = '';
-        return call('order', { key: key }).then(function (o) { current = o; renderOrder(false); listCache = null; });
+        return fetchOrder(key).then(function (o) { current = o; renderOrder(false); listCache = null; });
       }
       renderOrder(false);
     }).catch(function (e) { toast(e.message); });
@@ -3012,7 +3053,7 @@
         call('cntTransfer', { from: fk, to: tk }).then(function (d) {
           cntData = d; cRowsInit(); invData = null; listCache = null; traceData = null;
           if (d.notes && d.notes.length) toast(d.notes.join('／'));
-          return call('order', { key: tk }).then(function (o) { if (current && current.key === tk) { current = o; renderOrder(false); } });
+          return fetchOrder(tk).then(function (o) { if (current && current.key === tk) { current = o; renderOrder(false); } });
         }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
       return;
@@ -3021,7 +3062,7 @@
       var ck = current.key;
       confirmSheet('数で入れた充電開始の本数を、棚に戻しますか？（チェックはそのままです。外すときはチェックも取り消してください）', '棚に戻す').then(function (ok) {
         if (!ok) return;
-        call('cntChargeUndo', { key: ck }).then(function (d) { cntData = d; cRowsInit(); invData = null; renderOrder(false); }).catch(function (er) { toast(er.message); });
+        call('cntChargeUndo', { key: ck, noPf: true }).then(function (d) { cntData = d; cRowsInit(); invData = null; renderOrder(false); cntPfLater(d, ck); }).catch(function (er) { toast(er.message); });
       });
       return;
     }
