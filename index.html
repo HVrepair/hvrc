@@ -252,7 +252,19 @@
   .dc .dtop { display: flex; align-items: center; gap: 2px; }
   .dc .rc { display: block; font-size: 10px; line-height: 14px; padding: 0 2px 0 3px; border-left: 3px solid #8A8F96; background: #F2F4F7; border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; color: #1d2433; }
   .dc .rc.done { opacity: .45; }
-  .dc .lvn { display: block; font-size: 9.5px; line-height: 13px; color: #7A4B00; background: #FFE8B3; border-radius: 2px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .dc .lvn { display: flex; flex-wrap: wrap; gap: 1px; max-width: 100%; }
+  .lvc { display: inline-block; font-size: 9.5px; line-height: 13px; border-radius: 3px; padding: 0 2px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .lvc.ko { background: #DCE6FF; color: #2D3B8C; } .lvc.yu { background: #CFF5DD; color: #075E35; } .lvc.ha { background: #FFE2B8; color: #8A3B00; border: 1px dashed #E8892B; }
+  @media (min-width: 700px) { .lvc { font-size: 12px; line-height: 17px; } }
+  .sttab tr[data-stym] { cursor: pointer; } .sttab tr[data-stym]:active, .sttab tr.on { background: #EFF8FF; }
+  .sttab .stv { display: inline-block; width: 14px; font-size: 10px; color: #1F3A5F; }
+  .sttab tr.stdet > td { padding: 0 0 10px; background: #EFF8FF; }
+  .stbox { background: #fff; border: 2px solid #1F3A5F; border-radius: 10px; padding: 10px; margin: 0 2px; }
+  .sdtitle { font-weight: 800; font-size: 16px; color: #1F3A5F; } .sdsum { font-size: 13px; margin: 4px 0 6px; line-height: 1.6; }
+  .sdh { font-weight: 700; font-size: 13px; margin: 10px 0 2px; border-left: 4px solid #1F3A5F; padding-left: 6px; }
+  .sdt { width: 100%; } .sdt td, .sdt th { font-size: 12px; padding: 4px 3px; } .sdt td.n, .sdt th { white-space: nowrap; } .sdt td:first-child { min-width: 4.5em; } .sdt .pc { display: block; font-size: 10.5px; color: #667085; font-weight: 400; } .sdt tr.sum td { font-weight: 800; border-top: 2px solid #1F3A5F; }
+  .lvlegend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; margin: 4px 0; } .lvlegend .lvc { font-size: 12px; line-height: 18px; padding: 0 6px; }
+  .lvc b { margin-right: 2px; }
   .dc .evb.pv, .card.evc.pv { border-left-color: #667085; } .dc .evb.pv { background: #EEF0F3; color: #344054; }
   @media (min-width: 700px) { .cal.big .dc { min-height: 120px; } .dc .rc, .dc .lvn, .dc .evb { font-size: 12px; line-height: 17px; } .cal .dn { font-size: 15px; } }
   .calview { display: flex; gap: 6px; margin: 0 0 8px; }
@@ -332,7 +344,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-16d';
+  var SCREEN_VERSION = '2026-11-16g';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -532,6 +544,15 @@
     if (!lvs || !lvs.length) return '';
     return '休 ' + lvs.map(function (x) { return calShort(x.name) + (x.half === '午前' ? '(前)' : x.half === '午後' ? '(後)' : ''); }).join('・');
   }
+  // 休み1人ぶんの色つきの札：公休＝青、有休＝緑、半休（午前・午後）＝オレンジの点線
+  function lvChip(x, long) {
+    var half = x.half === '午前' || x.half === '午後';
+    var cls = half ? 'ha' : x.type === '有休' ? 'yu' : 'ko';
+    var tag = (x.type === '有休' ? '有' : '公') + (half ? (x.half === '午前' ? '前' : '後') : '');
+    // 枠がせまいスマホでも種類が切れないよう、種類を名前の前に出す
+    return '<span class="lvc ' + cls + '">' + (long ? esc(x.name + '（' + x.type + (half ? '・' + x.half : '') + '）') : '<b>' + tag + '</b>' + esc(calShort(x.name))) + '</span>';
+  }
+  var LV_LEGEND = '<div class="lvlegend"><span class="lvc ko"><b>公</b>＝公休</span><span class="lvc yu"><b>有</b>＝有休</span><span class="lvc ha"><b>前・後</b>＝半休（午前・午後）</span></div>';
   function calGridHtml(d, opt) {
     opt = opt || {};
     var attr = opt.attr || 'data-cald', max = opt.max || (window.innerWidth >= 700 ? 6 : 4);
@@ -543,8 +564,8 @@
       var room = max - Math.min(evs.length, 2);
       html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === opt.sel ? ' sel' : '') + '" ' + attr + '="' + day + '">' +
         '<span class="dtop"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '件</span>' : '') + '</span>' +
-        (lvs.length ? '<span class="lvn">' + esc(calLvText(lvs)) + '</span>' : '') +
-        evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '🔒' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
+        (lvs.length ? '<span class="lvn">' + lvs.map(function (x) { return lvChip(x, false); }).join('') + '</span>' : '') +
+        evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '🔒' : '') + (ev.notify ? '🔔' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
         list.slice(0, Math.max(room, 1)).map(function (o) { return '<span class="rc' + (o.pct >= 100 ? ' done' : '') + '" style="border-left-color:' + calColor(o) + '">' + esc((o.time ? o.time + ' ' : '') + calShort(o.name)) + '</span>'; }).join('') +
         (list.length > Math.max(room, 1) ? '<span class="more">＋' + (list.length - Math.max(room, 1)) + '件</span>' : '') + '</button>';
     }
@@ -554,12 +575,21 @@
   function calDayRows(d, day) {
     var list = d.days[day] || [], evs = (d.events || {})[day] || [], lvs = (d.leaves || {})[day] || [];
     var h = '';
-    if (lvs.length) h += '<div class="meta" style="color:#7A4B00">休み：' + lvs.map(function (x) { return esc(x.name) + '（' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + '）'; }).join('　') + '</div>';
+    if (lvs.length) h += '<div class="meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') + '</div>';
     h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '🔒 ' : '') + esc(ev.title) + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + '</span></div>'; }).join('');
     h += list.map(function (o) {
       return '<div class="clrow" data-key="' + esc(o.key) + '"><span class="t">' + esc(o.time || '―') + '</span><span class="sb" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.4' : '') + '"></span><span><b>' + esc(o.no) + '</b> ' + esc(o.name) + '<small class="meta">　' + esc([o.model, o.store, o.kubun].filter(Boolean).join('・')) + (o.pct >= 100 ? '・完了' : '') + '</small></span></div>';
     }).join('');
     return h;
+  }
+  // 予定の通知（前もってアプリに通知）：［通知 ▼］［みんな／自分だけ ▼］
+  var EV_NOTIFY = [['', '通知しない'], ['10分前', '10分前'], ['前日18時', '前日の18時'], ['当日8時', '当日の朝8時'], ['1時間前', '1時間前'], ['30分前', '30分前']]; // 選べるのは 10分前 だけ（前の版の設定は表示だけ）
+  function evNotifyHtml(pre, ev) {
+    ev = ev || {};
+    var on = !!ev.notify;
+    return '<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><label class="meta" style="display:flex;gap:8px;align-items:center;flex:1.3;margin:0"><input type="checkbox" id="' + pre + 'Notify" style="width:22px;height:22px"' + (on ? ' checked' : '') + '> 🔔 10分前に通知する</label>' +
+      '<select class="f" id="' + pre + 'NotifyTo" style="flex:1;min-width:0;margin:0"><option value="みんな"' + (ev.notifyTo !== '自分だけ' ? ' selected' : '') + '>みんなに</option><option value="自分だけ"' + (ev.notifyTo === '自分だけ' ? ' selected' : '') + '>自分だけに</option></select></div>' +
+      '<div class="meta" style="margin:0 0 6px">時刻のない予定は当日の朝8時に通知。🔒自分だけの予定は、自分だけに通知</div>';
   }
   var calView = 'grid';
   try { calView = localStorage.getItem('hv_calview') || 'grid'; } catch (e) { /* なくても動く */ }
@@ -579,11 +609,12 @@
           '<button type="button" class="mini" data-cald="' + dd + '" style="margin-left:auto">この日を開く</button></h4>' + (calDayRows(d, dd) || '<div class="meta">予定はありません</div>') + '</div>';
       }
       if (!any) html += '<div class="empty">この月の予定はありません</div>';
+      html += LV_LEGEND;
       html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>🔒 自分だけの予定</span><span><i style="background:#6B4FA0"></i>修理以外の予定</span><span>🔒 自分だけの予定</span></div>';
       $('main').innerHTML = html;
       return;
     }
-    html += calGridHtml(d, { sel: calSel });
+    html += calGridHtml(d, { sel: calSel }) + LV_LEGEND;
     html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>🔒＝自分だけの予定　薄い色＝完了</span></div>';
     html += '<div class="note">この月 ' + d.count + ' 件</div>';
     if (calSel) {
@@ -591,7 +622,7 @@
       var dt = new Date(d.y, d.m - 1, calSel);
       html += '<div class="h2">' + d.m + '/' + calSel + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')　' + sel.length + '件</div>';
       var lvs = (d.leaves || {})[calSel] || [];
-      html += '<div class="note" style="margin:-4px 0 8px">' + (lvs.length ? '休み：' + lvs.map(function (x) { return esc(x.name) + '（' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + '）'; }).join('　') : '休みの人はいません') +
+      html += '<div class="note" style="margin:-4px 0 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">' + (lvs.length ? '休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') : '休みの人はいません') +
         '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>';
       // 修理以外の予定
       var evs = (d.events || {})[calSel] || [];
@@ -605,10 +636,12 @@
             '<select class="f" id="eeStore"><option value="">店舗（なくても可）</option>' + ['苅田', 'インター', '出張', '営業'].map(opt).join('') + '</select>' +
             '<input class="f" id="eeMemo" value="' + esc(ev.memo) + '" placeholder="メモ（なくても可）">' +
             (ev.mine ? '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="eePriv" style="width:22px;height:22px"' + (ev.private ? ' checked' : '') + '> 🔒 自分だけの予定にする</label>' : '') +
+            evNotifyHtml('ee', ev) +
             '<button class="btn" data-eesave="' + esc(ev.id) + '">直す</button><button class="btn sub" data-eeclose="1">やめる</button></div>';
         }
         return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">' + (ev.private ? '🔒 ' : '') + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
           '<div class="meta">' + esc([ev.store, ev.memo, ev.private ? '自分だけの予定（ほかの人には見えません）' : '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
+          (ev.notify ? '<div class="meta">🔔 ' + esc((EV_NOTIFY.filter(function (o) { return o[0] === ev.notify; })[0] || [0, ev.notify])[1] + '・' + (ev.notifyTo === '自分だけ' ? '自分だけ' : 'みんな') + 'に通知' + (ev.notified ? '（' + (/送らず/.test(ev.notified) ? ev.notified : ev.notified + ' に通知ずみ') + '）' : '')) + '</div>' : '') +
           (ev.changed ? '<div class="meta" style="font-size:11px">' + esc(ev.changed) + '</div>' : '') +
           '<div style="margin-top:6px;display:flex;gap:6px"><button type="button" class="mini" data-evedit="' + esc(ev.id) + '">直す</button><button type="button" class="mini" data-evdel="' + esc(ev.id) + '">取り消す</button></div></div>';
       }).join('');
@@ -618,6 +651,7 @@
           '<div style="display:flex;gap:6px"><input class="f" type="time" id="evTime" style="flex:1;min-width:0"><select class="f" id="evStore" style="flex:1;min-width:0"><option value="">店舗（なくても可）</option><option>苅田</option><option>インター</option><option>出張</option><option>営業</option></select></div>' +
           '<input class="f" id="evMemo" placeholder="メモ（なくても可）">' +
           '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="evPriv" style="width:22px;height:22px"> 🔒 自分だけの予定にする（ほかの人のカレンダーには出ません）</label>' +
+          evNotifyHtml('ev') +
           '<button class="btn" data-evsave="1">予定を入れる</button><button class="btn sub" data-evclose="1">やめる</button></div>';
       } else html += '<button class="btn sub" data-evopen="1">＋ 修理以外の予定を入れる</button>';
       html += sel.length ? sel.map(function (o) {
@@ -652,7 +686,7 @@
     if ((t = e.target.closest('[data-evedit]'))) { evEdit = t.getAttribute('data-evedit'); evOpen = false; renderCal(); var tt = $('eeTitle'); if (tt) tt.focus(); return; }
     if (e.target.closest('[data-eeclose]')) { evEdit = ''; renderCal(); return; }
     if ((t = e.target.closest('[data-eesave]'))) {
-      var pe = { id: t.getAttribute('data-eesave'), title: $('eeTitle').value, date: $('eeDate').value, time: $('eeTime').value, store: $('eeStore').value, memo: $('eeMemo').value, private: !!($('eePriv') && $('eePriv').checked) };
+      var pe = { id: t.getAttribute('data-eesave'), title: $('eeTitle').value, date: $('eeDate').value, time: $('eeTime').value, store: $('eeStore').value, memo: $('eeMemo').value, private: !!($('eePriv') && $('eePriv').checked), notify: $('eeNotify') && $('eeNotify').checked ? '10分前' : '', notifyTo: ($('eeNotifyTo') || {}).value || 'みんな' };
       if (!pe.title.trim()) { toast('内容を入れてください'); return; }
       loading(true);
       call('eventEdit', pe).then(function (r) {
@@ -666,7 +700,7 @@
     if (e.target.closest('[data-evopen]')) { evOpen = true; evEdit = ''; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
     if (e.target.closest('[data-evclose]')) { evOpen = false; renderCal(); return; }
     if (e.target.closest('[data-evsave]')) {
-      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked) };
+      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked), notify: $('evNotify') && $('evNotify').checked ? '10分前' : '', notifyTo: ($('evNotifyTo') || {}).value || 'みんな' };
       if (!ev.title.trim()) { toast('内容を入れてください'); return; }
       loading(true);
       call('eventAdd', ev).then(function (r) { calData.events = r.events; evOpen = false; renderCal(); okToast('予定を入れました'); })
@@ -1100,6 +1134,38 @@
     if (!bidData) setTimeout(function () { bidLoad(); }, 0);
     return h;
   }
+  // 月ごとの表：押した月の内訳
+  var stOpenYm = '';
+  function stMonthHtml(m, d) {
+    var D = m.det;
+    if (!D) return '<div class="meta">内訳はまだありません（右上の「更新」で読み直してください）</div>';
+    var p = m.ym.split('-');
+    var tbl = function (title, list, total) {
+      if (!list || !list.length) return '';
+      var tn = list.reduce(function (a, x) { return a + x.n; }, 0) || 1;
+      return '<div class="sdh">' + title + '</div><table class="t sdt"><tr><th></th><th style="text-align:right">件数</th><th style="text-align:right">売上</th><th style="text-align:right">平均</th></tr>' +
+        list.map(function (x) { return '<tr><td>' + esc(x.k) + '</td><td class="n">' + x.n + '件<span class="pc">' + Math.round(x.n / tn * 100) + '%</span></td><td class="n">' + yenFull(x.sales) + '</td><td class="n">' + (x.n ? yenFull(x.sales / x.n) : '―') + '</td></tr>'; }).join('') +
+        (total ? '<tr class="sum"><td>合計</td><td class="n">' + total.n + '件</td><td class="n">' + yenFull(total.sales) + '</td><td class="n">' + (total.n ? yenFull(total.sales / total.n) : '―') + '</td></tr>' : '') + '</table>';
+    };
+    var h = '<div class="stbox"><div class="sdtitle">' + Number(p[0]) + '年' + Number(p[1]) + '月の内訳' + (m.ym === d.thisYm ? '（今月：これからの予約も入っています）' : '') + '</div>';
+    h += '<div class="sdsum">修理 <b>' + m.n + '件 ' + yenFull(m.sales) + '</b>' + (m.other ? '　その他(A) ' + m.other + '件 ' + yenFull(m.otherSales) : '') + (m.junk ? '　ジャンク ' + yenFull(m.junk) : '') + '　<b>全部 ' + yenFull(m.all !== undefined ? m.all : m.sales) + '</b>' + (m.re ? '<br><span class="meta">再修理（0円・件数に入れていない） ' + m.re + '件</span>' : '') + '</div>';
+    h += tbl('店舗（営業＝業販）', D.store, { n: m.n, sales: m.sales });
+    h += tbl('来店・出張・単体など', D.kind);
+    h += tbl('グレード（保証プラン）', D.grade);
+    h += tbl('車種（上位10）', D.model);
+    h += tbl('支払方法', D.payment);
+    if (D.other && D.other.length) h += tbl('その他の仕事（A番号）の店舗', D.other, { n: m.other, sales: m.otherSales });
+    return h + '<button type="button" class="btn sub" data-stym="' + esc(m.ym) + '" style="margin-top:8px">閉じる</button></div>';
+  }
+  function yenFull(v) { return (Math.round(v) || 0).toLocaleString() + '円'; }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/stats' || !stData) return;
+    var t = e.target.closest('[data-stym]'); if (!t) return;
+    var ym = t.getAttribute('data-stym'), y = window.scrollY;
+    stOpenYm = stOpenYm === ym ? '' : ym;
+    renderStats(); window.scrollTo(0, y);
+    if (stOpenYm) { var row = document.querySelector('tr[data-stym="' + ym + '"]'); if (row && row.getBoundingClientRect().top < 60) row.scrollIntoView({ block: 'start' }); }
+  });
   function renderStats() {
     var d = stData;
     if (d.empty) { $('main').innerHTML = '<div class="empty">受注のデータがありません</div>'; return; }
@@ -1147,8 +1213,12 @@
     html += '<div class="note" style="margin-top:18px">ここから下は直近12か月（終わった分）</div>';
     html += bars('車種（上位12）', d.by.model) + bars('グレード', d.by.grade) + bars('店舗', d.by.store) + bars('来店・出張・単体など', d.by.kind) + bars('支払方法', d.by.payment);
     // 表で見る
-    html += '<div class="h2">月ごとの表</div><table class="t"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">修理</th><th style="text-align:right">その他<br>(A)</th><th style="text-align:right">ジャン<br>ク</th><th style="text-align:right">全部</th></tr>' +
-      d.months.slice().reverse().slice(0, 24).map(function (m) { return '<tr><td>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + m.n + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + (m.otherSales ? yen(m.otherSales) : '―') + '</td><td class="n">' + (m.junk ? yen(m.junk) : '―') + '</td><td class="n"><b>' + yen(m.all !== undefined ? m.all : m.sales) + '</b></td></tr>'; }).join('') + '</table>';
+    html += '<div class="h2">月ごとの表</div><div class="meta" style="margin:-4px 0 6px">月を押すと、その月の内訳（店舗・営業ごとの件数と売上など）が見られます</div><table class="t sttab"><tr><th>月</th><th style="text-align:right">件数</th><th style="text-align:right">修理</th><th style="text-align:right">その他<br>(A)</th><th style="text-align:right">ジャン<br>ク</th><th style="text-align:right">全部</th></tr>' +
+      d.months.slice().reverse().slice(0, 24).map(function (m) {
+        var on = stOpenYm === m.ym;
+        return '<tr data-stym="' + esc(m.ym) + '" class="' + (on ? 'on' : '') + '"><td><span class="stv">' + (on ? '▼' : '▶') + '</span>' + m.ym.slice(2).replace('-', '/') + '</td><td class="n">' + m.n + '</td><td class="n">' + yen(m.sales) + '</td><td class="n">' + (m.otherSales ? yen(m.otherSales) : '―') + '</td><td class="n">' + (m.junk ? yen(m.junk) : '―') + '</td><td class="n"><b>' + yen(m.all !== undefined ? m.all : m.sales) + '</b></td></tr>' +
+          (on ? '<tr class="stdet"><td colspan="6">' + stMonthHtml(m, d) + '</td></tr>' : '');
+      }).join('') + '</table>';
     $('main').innerHTML = html;
     document.querySelectorAll('.cwrap').forEach(function (el) { el.scrollLeft = el.scrollWidth; }); // 新しい月（と予想）が見えるように
   }
@@ -2402,7 +2472,7 @@
           (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' +
             '<select class="f" data-crow="' + i + '" data-ck="lot" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
             ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { var gm = guideMark(l.range || l.rangeLabel, r.grade); return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + (gm ? gm.sym + ' ' : '') + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本' + (d.pf && l.unit ? '　1本 ' + (d.pf.per[l.unit] === null || d.pf.per[l.unit] === undefined ? '値段不明' : yenF(d.pf.per[l.unit])) + (d.pf.sup[l.unit] ? '（' + esc(d.pf.sup[l.unit]) + '）' : '') : '') + '</option>'; }).join('') +
-            '</select>' : '') + '</div>';
+            '</select>' + cUseHtml(r, i, id) : '') + '</div>';
       });
       html += '<button class="btn sub" data-cadd="1">＋ 行を足す（棚・ユニットが分かれたら）</button>';
       if (d.pf) html += '<div class="advice" id="cPf">' + cPfInner() + '</div>';
@@ -2412,6 +2482,29 @@
     }
     if (d.countEntered) html += '<button class="btn sub" data-cundo="1">数で入れた分を取り消す（棚に戻す）</button>';
     return html + '</div>';
+  }
+  // この修理で使った数値（選んだユニットの数値 58〜61 のうち、実際に組んだ 60〜61 など）
+  function cRangeOf(s) { var m = /(\d+(?:\.\d+)?)(?:\D+(\d+(?:\.\d+)?))?/.exec(String(s || '')); if (!m) return null; var a = Number(m[1]), b = Number(m[2] || m[1]); return a <= b ? [a, b] : [b, a]; }
+  function cUseHtml(r, i, id) {
+    var l = ((cntData.lots || {})[id] || []).filter(function (x) { return x.lot === r.lot; })[0];
+    var rg = l ? cRangeOf(l.range) : null;
+    var opt = function (k, v0, list) { return '<select class="f" data-crow="' + i + '" data-ck="' + k + '" style="min-width:0;margin:0">' + list.map(function (v) { return '<option' + (String(v) === String(v0) ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select>'; };
+    var h = '<div style="margin-top:6px;padding:8px;border:1px dashed #98A2B3;border-radius:8px;background:#FCFCFD">';
+    if (rg && rg[1] > rg[0] && rg[1] - rg[0] <= 20 && rg[0] === Math.floor(rg[0]) && rg[1] === Math.floor(rg[1])) {
+      var vals = []; for (var v = rg[0]; v <= rg[1]; v++) vals.push(v);
+      if (r.lo === undefined || r.lo === '' || vals.indexOf(Number(r.lo)) < 0) r.lo = rg[0];
+      if (r.hi === undefined || r.hi === '' || vals.indexOf(Number(r.hi)) < 0) r.hi = rg[1];
+      var gm = guideMark(r.lo + '-' + r.hi, r.grade);
+      h += '<div class="meta" style="margin:0 0 4px"><b>この修理で使った数値</b>（' + esc(l.unit || 'ユニット不明') + ' は ' + esc(l.rangeLabel) + '。実際に組んだ数値を選ぶ）</div>' +
+        '<div style="display:flex;gap:6px;align-items:center">' + opt('lo', r.lo, vals) + '<span>〜</span>' + opt('hi', r.hi, vals) +
+        (gm ? '<span class="meta" style="white-space:nowrap;font-weight:700;color:' + (gm.lv === 'low' ? '#B42318' : gm.lv === 'better' ? '#175CD3' : '#067647') + '">' + gm.sym + (gm.lv === 'low' ? ' 目安より下' : gm.lv === 'better' ? ' 目安より良い' : ' 目安どおり') + '</span>' : '') + '</div>' +
+        '<div class="meta" style="margin:4px 0 0">受注シートの「放電テスト」は ' + esc(Number(r.lo) === Number(r.hi) ? String(r.lo) : r.lo + '-' + r.hi) + ' になります（MIN値 ' + esc(String(Math.min(r.lo, r.hi))) + '）</div>';
+    } else if (!rg) {
+      h += '<div class="meta" style="margin:0 0 4px"><b>この修理で使った数値</b>（わかれば。受注シートの「放電テスト」に入ります）</div>' +
+        '<div style="display:flex;gap:6px;align-items:center"><input class="f" type="number" inputmode="decimal" data-crow="' + i + '" data-ck="lo" value="' + esc(r.lo || '') + '" placeholder="下 例 60" style="min-width:0;margin:0"><span>〜</span>' +
+        '<input class="f" type="number" inputmode="decimal" data-crow="' + i + '" data-ck="hi" value="' + esc(r.hi || '') + '" placeholder="上 例 61" style="min-width:0;margin:0"></div>';
+    } else return '';
+    return h + '</div>';
   }
   // 粗利の見込み（店長・管理者だけ）：もう出したモジュール＋今入れている行
   function yenF(v) { return (Math.round(v) || 0).toLocaleString() + '円'; }
@@ -2423,7 +2516,8 @@
       var a = String(r.lot || '').split('|'), u = a[0] || '', known = u && p.per[u] !== null && p.per[u] !== undefined;
       var per = known ? p.per[u] : p.avgMod;
       addMod += per * n; addN += n; if (!known) addEst += n;
-      add.push((u || 'ユニット未選択') + (u && p.sup[u] ? '（' + p.sup[u] + (a[1] ? '・' + a[1].replace('-', '〜') : '') + '）' : '') + ' ' + n + '本×' + yenF(per) + (known ? '' : '（見込み）'));
+      var rgTxt = r.lo !== undefined && r.lo !== '' ? (Number(r.lo) === Number(r.hi) || r.hi === '' || r.hi === undefined ? String(r.lo) : r.lo + '〜' + r.hi) : (a[1] ? a[1].replace('-', '〜') : '');
+      add.push((u || 'ユニット未選択') + (u && p.sup[u] ? '（' + p.sup[u] + (rgTxt ? '・' + rgTxt : '') + '）' : '') + ' ' + n + '本×' + yenF(per) + (known ? '' : '（見込み）'));
     });
     var mod = e.mod + addMod, n = e.n + addN, cost = mod + e.bus + e.ship + e.labor, gp = e.sales - cost;
     var used = e.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + yenF(l.per) + (l.est ? '（見込み）' : ''); });
@@ -2446,10 +2540,11 @@
     var key = current.key;
     var rows = cRows.filter(function (r) { return Number(r.n) > 0; }).map(function (r) {
       var a = String(r.lot || '').split('|');
-      return { cat: r.cat, grade: r.grade, rank: r.rank, n: r.n, unit: a[0] || '', range: a[1] || '' };
+      return { cat: r.cat, grade: r.grade, rank: r.rank, n: r.n, unit: a[0] || '', range: a[1] || '', lo: r.lo === undefined ? '' : r.lo, hi: r.hi === undefined ? '' : r.hi };
     });
     if (!rows.length) { toast('本数を入れてください'); return; }
     if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('種類とランクを選んでください'); return; }
+    if (rows.some(function (r) { return r.lo !== '' && r.hi !== '' && Number(r.lo) > Number(r.hi); })) { toast('使った数値は「下 〜 上」の順に選んでください'); return; }
     loading(true);
     return call('cntChargeSave', { key: key, rows: rows, lane: chosenLane, reason: reason || '' }).then(function (d) {
       loading(false);
@@ -2485,9 +2580,16 @@
   }
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (!current || !t.getAttribute || !t.getAttribute('data-crow') || t.getAttribute('data-ck') === 'n' || t.getAttribute('data-ck') === 'lot') { if (t.getAttribute && t.getAttribute('data-ck') === 'lot') cRead(); return; }
+    var ck = t.getAttribute && t.getAttribute('data-ck');
+    if (current && ck && t.getAttribute('data-crow') && (ck === 'lot' || ((ck === 'lo' || ck === 'hi') && t.tagName === 'SELECT'))) {
+      var r0 = cRows[Number(t.getAttribute('data-crow'))];
+      cRead();
+      if (r0 && ck === 'lot') { r0.lo = ''; r0.hi = ''; } // ユニットを変えたら、使った数値はそのユニットの数値から
+      renderOrder(false); return;
+    }
+    if (!current || !t.getAttribute || !t.getAttribute('data-crow') || ck === 'n' || ck === 'lo' || ck === 'hi') return;
     var cr = cRows[Number(t.getAttribute('data-crow'))]; if (cr) cr.lot = ''; // 棚が変わったらユニットは選び直し
-    cRead(); if (cr) cr.lot = ''; renderOrder(false);
+    cRead(); if (cr) { cr.lot = ''; cr.lo = ''; cr.hi = ''; } renderOrder(false);
   });
   // ---- 新品の修理：新品棚・新品ユニットから出す（C49） ----
   var newPlan = null;
