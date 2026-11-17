@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-17b';
+  var SCREEN_VERSION = '2026-11-18a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1704,7 +1704,9 @@
     if (pl) body += '<div class="meta"><b>予定</b>（充電開始のとき・' + esc(pl.at) + '）：モジュール ' + y(pl.mod) + '（' + pl.n + '本）・バスバー ' + y(pl.bus) + (pl.ship ? '・送料 ' + y(pl.ship) : '') + (pl.labor ? '・人件費 ' + y(pl.labor) : '') + '<br>' + esc(pl.text) + '</div>';
     if (a) body += '<div class="meta" style="margin-top:6px"><b>' + (p.actual ? '実績' : '今の見込み') + '</b>：売上 ' + y(a.sales) + '（税別）− モジュール ' + y(a.mod) + '（' + a.n + '本）− バスバー ' + y(a.bus) + '（' + a.busN + '枚' + (a.busEst ? '・平均で見込み' : '') + '）' +
       (a.ship ? '− 送料 ' + y(a.ship) : '') + (a.labor ? '− 人件費 ' + y(a.labor) : '') + (a.travel ? '− 出張（ガソリン・高速） ' + y(a.travel) : '') + ' ＝ ' + y(a.gp) + '<br>' +
-      (a.trip ? '出張：苅田行橋店から片道 ' + a.trip.km + 'km・' + a.trip.min + '分（往復 ' + a.trip.hours + '時間）' + (a.trip.est ? (a.trip.noAddr ? '・住所がないので平均で見込み' : '・平均で見込み') : '') + '。ガソリン ' + y(a.trip.fuel) + (a.trip.toll ? '・高速 ' + y(a.trip.toll) : '・高速なし') + '。人件費は作業 ' + a.baseH + '時間＋移動の時間で割り振り<br>' : '') +
+      (a.trip && a.trip.chain ? '出張：同じ日に <b>' + esc(a.trip.chain.route) + '</b>（' + esc(a.trip.chain.order) + '）で回った。全部で ' + a.trip.chain.km + 'km・' + a.trip.chain.min + '分' + (a.trip.chain.pairEst ? '（出張先のあいだの距離がわからない所は、いったん店に戻ったとして計算）' : '') +
+        '。この修理の分は ' + a.trip.chain.shareKm + 'km・' + a.trip.chain.shareMin + '分（1件だけなら往復 ' + a.trip.chain.aloneKm + 'km）。<br>' : '') +
+      (a.trip ? '出張：苅田行橋店から片道 ' + a.trip.km + 'km・' + a.trip.min + '分（' + (a.trip.chain ? '移動の割り振り ' : '往復 ') + a.trip.hours + '時間）' + (a.trip.est ? (a.trip.noAddr ? '・住所がないので平均で見込み' : '・平均で見込み') : '') + '。ガソリン ' + y(a.trip.fuel) + (a.trip.toll ? '・高速 ' + y(a.trip.toll) : '・高速なし') + '。人件費は作業 ' + a.baseH + '時間＋移動の時間で割り振り<br>' : '') +
       esc(a.lines.map(function (l) { return (l.unit || 'ユニット不明') + '（' + l.sup + (l.range ? '・' + l.range : '') + '）' + l.n + '本×' + y(l.per) + (l.est ? '（見込み）' : l.ret ? '（戻りの値段）' : ''); }).join('／')) +
       (a.retN ? '<br>修理の戻り ' + a.retN + '本は0円です。この分（1本 G2 ' + y(a.retPrice.G2) + '・G3 ' + y(a.retPrice.G3) + ' 相当＝' + y(a.retYen) + '）は、戻りが出た元の修理の「戻り分」になります' : '') +
       (p.actual ? '<br>「修理の粗利」シートに記録' + (p.recAt ? '（' + esc(p.recAt) + '）' : '') + '。バスバーの枚数・人件費（その月の件数）が変わると直ります' : '') + '</div>';
@@ -2919,7 +2921,7 @@
     return '<b>この修理の粗利（見込み・税別）：' + yenF(gp) + (e.sales ? '（' + Math.round(gp / e.sales * 1000) / 10 + '%）' : '') + '</b>' +
       '<div class="meta">売上 ' + yenF(e.sales) + '（税別）− モジュール ' + yenF(mod) + '（' + n + '本）− バスバー ' + yenF(e.bus) + '（' + e.busN + '枚' + (e.busEst ? '・平均で見込み' : '') + '）' +
       (e.ship ? '− 送料 ' + yenF(e.ship) : '') + (e.labor ? '− 人件費 ' + yenF(e.labor) + '（月の人件費を' + e.laborCnt + '件に時間で割り振り）' : '') + (e.travel ? '− 出張 ' + yenF(e.travel) : '') + '</div>' +
-      (e.trip ? '<div class="meta">出張：片道 ' + e.trip.km + 'km・' + e.trip.min + '分' + (e.trip.est ? '（平均で見込み）' : '') + '・ガソリン ' + yenF(e.trip.fuel) + (e.trip.toll ? '・高速 ' + yenF(e.trip.toll) : '') + '</div>' : '') +
+      (e.trip ? '<div class="meta">出張：片道 ' + e.trip.km + 'km・' + e.trip.min + '分' + (e.trip.est ? '（平均で見込み）' : '') + (e.trip.chain ? '（同じ日に ' + esc(e.trip.chain.route) + ' で回る分を割り振り）' : '') + '・ガソリン ' + yenF(e.trip.fuel) + (e.trip.toll ? '・高速 ' + yenF(e.trip.toll) : '') + '</div>' : '') +
       (used.length ? '<div class="meta">出したモジュール：' + esc(used.join('／')) + '</div>' : '') +
       (add.length ? '<div class="meta">これから出す：' + esc(add.join('／')) + '</div>' : '') +
       (e.est + addEst ? '<div class="meta">値段がわからないユニットは平均 ' + yenF(p.avgMod) + '／本で見込み</div>' : '') +
@@ -3589,6 +3591,7 @@
   function openInbound() {
     setNav('#/inv', '#/inv');
     $('title').textContent = '入庫';
+    if (!sellerBusy) sellerData = null; // 開くたびに出品者の記録を読み直す（ほかの iPad で登録した分も出るように）
     loading(true);
     invLoad(true).then(function () { inUnit = ''; inLast = null; renderInbound(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
     scanHandlers.incase = function (v) { return doInbound(v); };
@@ -3747,9 +3750,38 @@
     if (!k) return '';
     if (!sellerData) return '<div class="meta">前の記録を確認中…</div>';
     var x = sellerData.filter(function (s) { return s.key === k; })[0];
-    if (!x) return '<div class="meta" style="margin:4px 0 8px">はじめての相手です（前に買った記録はありません）</div>';
-    return sellerCard(x, true);
+    if (x) return sellerCard(x, true);
+    // 書き方がちがうだけかもしれない：かっこの中・株式会社の有無・一部だけ、でも探す（11/18〜）
+    var mine = sellerAliases(name), sup0 = String(sup || '').replace(/\s+/g, '');
+    var near = sellerData.filter(function (s) {
+      if (String(s.supplier || '').replace(/\s+/g, '') !== sup0) return false;
+      var al = sellerAliases(s.seller);
+      return mine.some(function (a) { return al.some(function (b) { return a === b || (a.length >= 3 && b.length >= 3 && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)); }); });
+    });
+    if (!near.length) return '<div class="meta" style="margin:4px 0 8px">はじめての相手です（前に買った記録はありません）</div>';
+    return '<div class="advice mid" style="margin:4px 0 4px">名前の書き方がちがう、前に買った相手がいます。同じ相手なら名前をそろえてください（成績がまとまります）</div>' +
+      near.slice(0, 3).map(function (s) { return sellerCard(s, true) + '<button type="button" class="btn sub" data-sellerset="' + esc(s.seller) + '" style="margin:0 0 8px">「' + esc(s.seller) + '」にそろえる</button>'; }).join('');
   }
+  // 名前の読み方のちがいをならす：全角半角・大文字小文字・空白・様／さん・株式会社などを消し、かっこの中と外も別の呼び名にする
+  function sellerNorm(v) {
+    return String(v || '').normalize('NFKC').toLowerCase().replace(/\s+/g, '').replace(/(様|さん)$/, '').replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)/g, '');
+  }
+  function sellerAliases(v) {
+    var t = String(v || '').normalize('NFKC'), out = [];
+    var add = function (x) { x = sellerNorm(x); if (x && out.indexOf(x) < 0) out.push(x); };
+    add(t); add(t.replace(/[（(][^）)]*[）)]/g, ''));
+    (t.match(/[（(]([^）)]*)[）)]/g) || []).forEach(function (m) { add(m.replace(/^[（(]|[）)]$/g, '')); });
+    t.split(/[\/／・]/).forEach(function (x) { if (x !== t) add(x); });
+    return out;
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-sellerset]');
+    if (!b || location.hash !== '#/inv/in') return;
+    var v = b.getAttribute('data-sellerset'), inp = $('bSeller');
+    buy.seller = v; if (inp) inp.value = v;
+    var sup = invData ? buySup(invData) : null, box = $('bSellerInfo');
+    if (box && sup) box.innerHTML = sellerInfoHtml(sup.name, v);
+  });
   document.addEventListener('input', function (e) {
     if (location.hash !== '#/inv/in' || !e.target || e.target.id !== 'bSeller') return;
     buy.seller = e.target.value;
