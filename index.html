@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-17a';
+  var SCREEN_VERSION = '2026-11-17b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2733,7 +2733,7 @@
   function cRowsInit() {
     var d = cntData; if (!d) return;
     var rest = Math.max((d.need || 0) - d.have, 0);
-    cRows = [{ cat: d.cat, grade: '', rank: '', n: rest || '' }];
+    cRows = [{ cat: d.cat, grade: '', rank: '', lot: '', n: '', nAuto: true }]; // ① ユニットを選ぶと ② 本数が入る
   }
   function chargeModeSeg() {
     return '<div class="seg"><button data-cmode="数"' + (chargeMode === '数' ? ' class="on"' : '') + '>本数で入れる</button><button data-cmode="QR"' + (chargeMode === 'QR' ? ' class="on"' : '') + '>QRで1本ずつ</button></div>';
@@ -2817,20 +2817,28 @@
       html += '<div class="big-ok">必要本数そろっています</div>';
       if (d.pf) html += '<div class="advice" id="cPf">' + cPfInner() + '</div>';
     } else {
-      html += '<div class="lbl2">棚から出した本数（棚が分かれたら「＋ 棚を足す」）</div>';
+      // ① どのユニットから → ② 何本（11/17〜）
+      html += '<div class="lbl2">① どのユニットから出す？ → ② 何本出す？（ユニットが分かれたら「＋ ユニットを足す」）</div>';
       cRows.forEach(function (r, i) {
         var id = r.grade && r.rank ? r.cat + '/' + r.grade + '/' + r.rank : '';
-        html += '<div class="crow"><div class="seg" style="margin:4px 0">' + ['使用可能', '半年'].map(function (c) { return '<button data-ccat="' + i + '" data-v="' + c + '"' + (r.cat === c ? ' class="on"' : '') + '>' + (c === '半年' ? '半年用' : c) + '</button>'; }).join('') + '</div>' +
-          '<div style="display:flex;gap:6px;align-items:center"><select class="f" data-crow="' + i + '" data-ck="grade"><option value="">種類</option>' + G.map(function (g) { return '<option' + (r.grade === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select>' +
-          '<select class="f" data-crow="' + i + '" data-ck="rank"><option value="">ランク</option>' + R.map(function (x) { return '<option' + (r.rank === x ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
-          '<input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0" placeholder="本">' +
+        var cur = id ? cLotOf(id, r.lot) : null;
+        var left = cLeft(i);
+        html += '<div class="crow"><div style="display:flex;gap:6px;align-items:center"><div class="seg" style="margin:4px 0;flex:1">' + ['使用可能', '半年'].map(function (c) { return '<button data-ccat="' + i + '" data-v="' + c + '"' + (r.cat === c ? ' class="on"' : '') + '>' + (c === '半年' ? '半年用' : c) + '</button>'; }).join('') + '</div>' +
           (cRows.length > 1 ? '<button class="btn sub" data-cdel="' + i + '" style="width:auto;margin:0;padding:8px 10px">✕</button>' : '') + '</div>' +
-          (id ? '<div class="meta">この棚の今の本数：' + (d.shelves[id] || 0) + '本</div>' +
-            '<select class="f" data-crow="' + i + '" data-ck="lot" style="margin-top:4px"><option value="">どのユニットのモジュール？（わからなければこのまま）</option>' +
-            ((d.lots || {})[id] || []).filter(function (l) { return l.unit || l.range; }).map(function (l) { var gm = guideMark(l.range || l.rangeLabel, r.grade); return '<option value="' + esc(l.lot) + '"' + (r.lot === l.lot ? ' selected' : '') + '>' + (gm ? gm.sym + ' ' : '') + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　数値 ' + esc(l.rangeLabel) : '') + (l.broke ? '（' + esc(l.broke) + ' ばらし）' : '') + '　残り ' + l.n + '本' + (d.pf && l.unit ? '　1本 税別 ' + (d.pf.per[l.unit] === null || d.pf.per[l.unit] === undefined ? '値段不明' : yenF(d.pf.per[l.unit])) + (d.pf.sup[l.unit] ? '（' + esc(d.pf.sup[l.unit]) + '）' : '') : '') + '</option>'; }).join('') +
-            '</select>' + cUseHtml(r, i, id) : '') + '</div>';
+          '<select class="f" data-crow="' + i + '" data-ck="pick" style="margin-top:4px"><option value="">① ユニットを選ぶ</option>' + cPickOpts(r) + '</select>';
+        if (id) {
+          var max = cur ? cur.n : (d.shelves[id] || 0);
+          html += '<div class="meta" style="margin:2px 0 0">棚：' + esc(r.grade + ' ' + r.rank) + '（' + esc(r.cat === '半年' ? '半年用' : '使用可能') + '）　' + (cur ? 'このユニットの残り <b>' + cur.n + '本</b>' : 'この棚の本数 ' + (d.shelves[id] || 0) + '本') + '</div>' +
+            '<div class="lbl2" style="margin-top:6px">② 何本出す？</div>' +
+            '<div style="display:flex;gap:6px;align-items:center"><input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0;margin:0;flex:1" placeholder="本">' +
+            (left > 0 && left < max ? '<button type="button" class="btn sub" data-cn="' + i + '" data-v="' + left + '" style="width:auto;margin:0;padding:8px 10px">あと' + left + '本</button>' : '') +
+            (max > 0 ? '<button type="button" class="btn sub" data-cn="' + i + '" data-v="' + max + '" style="width:auto;margin:0;padding:8px 10px">全部 ' + max + '本</button>' : '') + '</div>' +
+            (Number(r.n) > max ? '<div class="exp" style="margin-top:2px">' + (cur ? 'このユニット' : 'この棚') + 'の残り（' + max + '本）より多いです</div>' : '') +
+            cUseHtml(r, i, id);
+        }
+        html += '</div>';
       });
-      html += '<button class="btn sub" data-cadd="1">＋ 行を足す（棚・ユニットが分かれたら）</button>';
+      html += '<button class="btn sub" data-cadd="1">＋ ユニットを足す（足りないとき・分かれたとき）</button>';
       if (d.pf) html += '<div class="advice" id="cPf">' + cPfInner() + '</div>';
       html += '<div class="lbl2">充電レーン（なくても可）' + (chosenLane ? '：<b>' + esc(chosenLane) + '</b>' : '') + '</div>';
       html += '<div class="lanes">' + LANES.map(function (l, i) { return '<button data-lane="' + l + '"' + (chosenLane === l ? ' class="on"' : '') + '>' + (i + 1) + '</button>'; }).join('') + '</div>';
@@ -2838,6 +2846,37 @@
     }
     if (d.countEntered) html += '<button class="btn sub" data-cundo="1">数で入れた分を取り消す（棚に戻す）</button>';
     return html + '</div>';
+  }
+  // 充電開始：ユニットの選択肢（棚ごと。種類・ランクの順、棚の中は 目安どおり → 数値の高い順）
+  var C_G = ['G2-1', 'G2-2', 'G2-3', 'G3'], C_R = ['A', 'B+', 'B', 'C'];
+  function cLotOf(id, lot) { return ((cntData.lots || {})[id] || []).filter(function (l) { return l.lot === (lot || ''); })[0] || null; }
+  function cShelfIds(cat) {
+    var d = cntData, ids = [];
+    C_G.forEach(function (g) { C_R.forEach(function (rk) { var id = cat + '/' + g + '/' + rk; if ((d.shelves[id] || 0) > 0 || ((d.lots || {})[id] || []).length) ids.push(id); }); });
+    return ids;
+  }
+  function cPickOpts(r) {
+    var d = cntData, pf = d.pf;
+    return cShelfIds(r.cat).map(function (id) {
+      var a = id.split('/'), g = a[1], rk = a[2];
+      var ls = ((d.lots || {})[id] || []).slice();
+      var known = ls.reduce(function (t, l) { return t + l.n; }, 0), rest = (d.shelves[id] || 0) - known;
+      if (rest > 0 && !ls.some(function (l) { return !l.lot; })) ls.push({ lot: '', unit: '', range: '', rangeLabel: '', n: rest });
+      var rank = function (l) { var m = guideMark(l.range || l.rangeLabel, g); return m ? (m.lv === 'low' ? 2 : 0) : 1; };
+      var top = function (l) { var x = cRangeOf(l.range); return x ? x[1] : -1; };
+      ls.sort(function (x, y) { return (x.unit || x.range ? 0 : 1) - (y.unit || y.range ? 0 : 1) || rank(x) - rank(y) || top(y) - top(x) || y.n - x.n; });
+      return '<optgroup label="' + esc(g + ' ' + rk + '（' + (d.shelves[id] || 0) + '本）') + '">' + ls.map(function (l) {
+        var v = id + '#' + l.lot, gm = guideMark(l.range || l.rangeLabel, g);
+        return '<option value="' + esc(v) + '"' + (r.grade === g && r.rank === rk && (r.lot || '') === l.lot ? ' selected' : '') + '>' + (gm ? gm.sym + ' ' : '') + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '　' + esc(l.rangeLabel) : '') + '　残り' + l.n + '本' + (l.broke ? '（' + esc(l.broke) + '）' : '') +
+          (pf && l.unit ? '　1本 ' + (pf.per[l.unit] === null || pf.per[l.unit] === undefined ? '値段不明' : yenF(pf.per[l.unit])) : '') + '</option>';
+      }).join('') + '</optgroup>';
+    }).join('');
+  }
+  // この行で、あと何本あればそろうか（ほかの行に入れた本数を引く）
+  function cLeft(i) {
+    var d = cntData, need = Math.max((d.need || 0) - d.have, 0);
+    cRows.forEach(function (x, k) { if (k !== i) need -= Number(x.n) || 0; });
+    return Math.max(need, 0);
   }
   // この修理で使った数値（選んだユニットの数値 58〜61 のうち、実際に組んだ 60〜61 など）
   function cRangeOf(s) { var m = /(\d+(?:\.\d+)?)(?:\D+(\d+(?:\.\d+)?))?/.exec(String(s || '')); if (!m) return null; var a = Number(m[1]), b = Number(m[2] || m[1]); return a <= b ? [a, b] : [b, a]; }
@@ -2888,6 +2927,7 @@
       (e.missing && e.missing.length ? '<div class="meta">「設定」にまだない値：' + esc(e.missing.join('・')) + '</div>' : '') +
       '<div class="meta">充電開始を押すと「修理の粗利」シートに予定として記録し、修理日が過ぎたら実績も記録します（店長・管理者だけに表示）</div>';
   }
+  document.addEventListener('input', function (e) { var t0 = e.target; if (t0.getAttribute && t0.getAttribute('data-ck') === 'n' && t0.getAttribute('data-crow') !== null) { var rn = cRows[Number(t0.getAttribute('data-crow'))]; if (rn) rn.nAuto = false; } });
   document.addEventListener('input', function (e) { var t = e.target; if (t.getAttribute && t.getAttribute('data-crow') !== null && $('cPf')) { cRead(); $('cPf').innerHTML = cPfInner(); } });
   document.addEventListener('change', function (e) { var t = e.target; if (t.getAttribute && t.getAttribute('data-crow') !== null && $('cPf')) { cRead(); $('cPf').innerHTML = cPfInner(); } });
   function cRead() {
@@ -2901,7 +2941,7 @@
       return { cat: r.cat, grade: r.grade, rank: r.rank, n: r.n, unit: a[0] || '', range: a[1] || '', lo: r.lo === undefined ? '' : r.lo, hi: r.hi === undefined ? '' : r.hi };
     });
     if (!rows.length) { toast('本数を入れてください'); return; }
-    if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('種類とランクを選んでください'); return; }
+    if (rows.some(function (r) { return !r.grade || !r.rank; })) { toast('① どのユニットから出すかを選んでください'); return; }
     if (rows.some(function (r) { return r.lo !== '' && r.hi !== '' && Number(r.lo) > Number(r.hi); })) { toast('使った数値は「下 〜 上」の順に選んでください'); return; }
     loading(true);
     return call('cntChargeSave', { key: key, rows: rows, lane: chosenLane, reason: reason || '', noPf: true }).then(function (d) {
@@ -2939,6 +2979,21 @@
   document.addEventListener('change', function (e) {
     var t = e.target;
     var ck = t.getAttribute && t.getAttribute('data-ck');
+    if (current && ck === 'pick' && t.getAttribute('data-crow') !== null) { // ① ユニットを選んだ → 棚（種類・ランク）も決まる。② 本数は「あと何本」か残りの少ないほう
+      var ip = Number(t.getAttribute('data-crow')), rp = cRows[ip];
+      cRead();
+      if (rp) {
+        var pv = String(rp.pick || ''), hp = pv.indexOf('#');
+        if (hp < 0) { rp.grade = ''; rp.rank = ''; rp.lot = ''; }
+        else {
+          var pa = pv.slice(0, hp).split('/'); rp.grade = pa[1]; rp.rank = pa[2]; rp.lot = pv.slice(hp + 1);
+          var pl = cLotOf(pv.slice(0, hp), rp.lot), lf = cLeft(ip), mx = pl ? pl.n : (cntData.shelves[pv.slice(0, hp)] || 0);
+          if (!Number(rp.n) || rp.nAuto) { rp.n = lf > 0 ? Math.min(lf, mx) : ''; rp.nAuto = true; }
+        }
+        rp.lo = ''; rp.hi = '';
+      }
+      renderOrder(false); return;
+    }
     if (current && ck && t.getAttribute('data-crow') && (ck === 'lot' || ((ck === 'lo' || ck === 'hi') && t.tagName === 'SELECT'))) {
       var r0 = cRows[Number(t.getAttribute('data-crow'))];
       cRead();
@@ -3041,8 +3096,9 @@
       chargeMode = t.getAttribute('data-cmode'); try { localStorage.setItem('hvrc_chargeMode', chargeMode); } catch (er) { /* なくても動く */ }
       chargeData = null; cntData = null; loadCharge(); return;
     }
-    if ((t = e.target.closest('[data-ccat]'))) { cRead(); var cc = cRows[Number(t.getAttribute('data-ccat'))]; cc.cat = t.getAttribute('data-v'); cc.lot = ''; renderOrder(false); return; }
-    if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: last.grade || '', rank: last.rank || '', unit: '', n: '' }); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-ccat]'))) { cRead(); var cc = cRows[Number(t.getAttribute('data-ccat'))]; cc.cat = t.getAttribute('data-v'); cc.grade = ''; cc.rank = ''; cc.lot = ''; cc.pick = ''; cc.lo = ''; cc.hi = ''; renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cn]'))) { cRead(); var cn = cRows[Number(t.getAttribute('data-cn'))]; if (cn) { cn.n = t.getAttribute('data-v'); cn.nAuto = false; } renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: '', rank: '', lot: '', n: '', nAuto: true }); renderOrder(false); return; }
     if ((t = e.target.closest('[data-cdel]'))) { cRead(); cRows.splice(Number(t.getAttribute('data-cdel')), 1); renderOrder(false); return; }
     if ((t = e.target.closest('[data-csave]'))) { cntSave(''); return; }
     if ((t = e.target.closest('[data-ctrans]'))) {
