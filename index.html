@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-18a';
+  var SCREEN_VERSION = '2026-11-18b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -3730,10 +3730,11 @@
     return (t.units ? t.units + '台・' : '') + t.qty + '本' + (String(buy.price) !== '' ? '　税別 ' + Math.round(tax === '税込' ? price / 1.1 : price).toLocaleString() + '円' : '');
   }
   // ---- 出品者（同じ相手から前に買ったか） ----
-  var sellerData = null, sellerBusy = false;
+  var sellerData = null, sellerBusy = false, sellerErr = '';
   function sellerLoad() {
     sellerBusy = true;
-    call('invSellers').then(function (r) { sellerData = r.list || []; }).catch(function () { sellerData = []; }).then(function () {
+    sellerErr = '';
+    call('invSellers').then(function (r) { sellerData = r.list || []; }).catch(function (e) { sellerData = []; sellerErr = e.message || 'エラー'; }).then(function () {
       sellerBusy = false;
       if (location.hash !== '#/inv/in') return;
       var sup = invData ? buySup(invData) : null, dl = $('bSellers');
@@ -3749,6 +3750,7 @@
     var k = sellerKey(sup, name);
     if (!k) return '';
     if (!sellerData) return '<div class="meta">前の記録を確認中…</div>';
+    if (sellerErr) return '<div class="exp" style="margin:4px 0 8px">前の記録を読めませんでした（' + esc(sellerErr) + '）。前に買った相手かどうかはわかりません</div>';
     var x = sellerData.filter(function (s) { return s.key === k; })[0];
     if (x) return sellerCard(x, true);
     // 書き方がちがうだけかもしれない：かっこの中・株式会社の有無・一部だけ、でも探す（11/18〜）
