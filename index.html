@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-18b';
+  var SCREEN_VERSION = '2026-11-18c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2248,6 +2248,37 @@
       } catch (e) { resolve(false); }
     });
   }
+  function kvGet(key) {
+    return new Promise(function (resolve) {
+      try {
+        var req = indexedDB.open('hvrc', 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore('kv'); };
+        req.onsuccess = function () { try { var g = req.result.transaction('kv', 'readonly').objectStore('kv').get(key); g.onsuccess = function () { resolve(g.result); }; g.onerror = function () { resolve(null); }; } catch (e) { resolve(null); } };
+        req.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+  // この端末の登録をサーバーと合わせる（11/18〜）：iPhone が通知の宛先を変えていたら登録し直す。送った通知を受け取れていなければ知らせる
+  function pushSync(sub) {
+    return call('pushStatus', { endpoint: sub.endpoint }).then(function (r) {
+      if (r.thisDevice) return r;
+      return kvGet('pushSecret').then(function (old) {
+        return call('pushSubscribe', { sub: JSON.parse(JSON.stringify(sub)), device: navigator.userAgent, oldSecret: old || '' });
+      }).then(function (x) { return kvSet('pushSecret', x.secret); }).then(function () { r.thisDevice = true; r.resynced = true; r.stale = null; return r; });
+    });
+  }
+  // アプリを開いたとき、1日1回だけ裏で合わせる
+  setTimeout(function () {
+    try {
+      if (IN_GAS || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return;
+      var today = new Date().toDateString();
+      if (localStorage.getItem('hvrc_pushsync') === today) return;
+      navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub || !localStorage.getItem('hvrc_token')) return;
+        return pushSync(sub).then(function () { try { localStorage.setItem('hvrc_pushsync', today); } catch (e) { /* なくてよい */ } });
+      }).catch(function () { /* 次に開いたときにまた */ });
+    } catch (e) { /* なくても動く */ }
+  }, 6000);
   function swReady() {
     if (IN_GAS || !('serviceWorker' in navigator)) return Promise.reject(new Error('この画面では通知を使えません（ホーム画面の「HVRC業務」アプリから開いてください）'));
     return navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; });
@@ -2269,7 +2300,12 @@
     return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
       pushState.on = !!sub && Notification.permission === 'granted';
       pushState.msg = Notification.permission === 'denied' ? '通知が「許可しない」になっています。端末の設定 → 通知 →「HVRC業務」で許可してください' : '';
-      pushState.checked = true;
+      pushState.stale = null;
+      if (!pushState.on) { pushState.checked = true; return; }
+      return pushSync(sub).then(function (r) {
+        if (r.stale) pushState.stale = r.stale;
+        pushState.checked = true;
+      }).catch(function () { pushState.checked = true; });
     }).catch(function (e) { pushState.msg = e.message; pushState.checked = true; });
   }
   function pushBoxHtml() {
@@ -2277,6 +2313,8 @@
     var h = '<div class="meta">新しい受注・再修理が登録されると、この端末に通知が届きます（自分で登録したものは届きません）。</div>';
     if (pushState.msg) h += '<div class="warnbox" style="margin-top:8px">' + esc(pushState.msg) + '</div>';
     if (!pushState.supported) return h;
+    if (pushState.on && pushState.stale) h += '<div class="warnbox" style="margin-top:8px">この端末に送った通知（' + esc(pushState.stale.at + '　' + pushState.stale.title) + '）を、受け取れていません。下の「登録し直す」を押してから「テスト通知を送る」で確かめてください。<br>それでも届かないときは、端末の 設定 → 通知 →「HVRC業務」が許可になっているか、集中モードになっていないかを見てください</div>' +
+      '<button type="button" class="btn" data-push="redo" style="margin-top:8px">登録し直す</button>';
     if (pushState.on) h += '<div class="okmsg" style="margin-top:8px">この端末で通知を受け取っています</div><div class="two" style="margin-top:8px"><button type="button" class="btn sub" style="margin:0" data-push="test">テスト通知を送る</button><button type="button" class="btn sub" style="margin:0" data-push="off">通知をやめる</button></div>';
     else h += '<button type="button" class="btn" data-push="on">この端末で通知を受け取る</button>';
     return h;
@@ -2289,9 +2327,9 @@
       if (a[0] !== 'granted') throw new Error('通知が許可されませんでした。端末の設定 → 通知 →「HVRC業務」で許可してください');
       return a[2].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(a[1].publicKey) });
     }).then(function (sub) {
-      return call('pushSubscribe', { sub: JSON.parse(JSON.stringify(sub)), device: navigator.userAgent });
+      return kvGet('pushSecret').then(function (old) { return call('pushSubscribe', { sub: JSON.parse(JSON.stringify(sub)), device: navigator.userAgent, oldSecret: old || '' }); });
     }).then(function (r) { return kvSet('pushSecret', r.secret); }).then(function () {
-      pushState.on = true; pushState.msg = ''; okToast('この端末で通知を受け取るようにしました');
+      pushState.on = true; pushState.msg = ''; pushState.stale = null; okToast('この端末で通知を受け取るようにしました');
     });
   }
   function pushOff() {
@@ -2305,7 +2343,12 @@
     var t = e.target.closest && e.target.closest('[data-push]');
     if (!t || location.hash !== '#/me') return;
     var a = t.getAttribute('data-push');
-    var job = a === 'on' ? pushOn() : a === 'off' ? pushOff() : call('pushTest', {}).then(function (r) { okToast('テスト通知を送りました（' + r.sent + '台' + (r.failed ? '・届かなかった ' + r.failed + '台' : '') + '）'); });
+    // 登録し直す：いまの宛先をやめて、新しい宛先で登録（前の登録はサーバーで止める）
+    var redo = function () {
+      var perm = Notification.requestPermission();
+      return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) { return sub ? sub.unsubscribe() : true; }).then(function () { return perm; }).then(function () { return pushOn(); });
+    };
+    var job = a === 'on' ? pushOn() : a === 'redo' ? redo() : a === 'off' ? pushOff() : call('pushTest', {}).then(function (r) { okToast('テスト通知を送りました（' + r.sent + '台' + (r.failed ? '・届かなかった ' + r.failed + '台' : '') + '）'); });
     t.disabled = true;
     job.catch(function (er) { toast(er.message); }).then(function () { var b = $('pushBox'); if (b) b.innerHTML = pushBoxHtml(); });
   });
