@@ -363,7 +363,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-18c';
+  var SCREEN_VERSION = '2026-11-18d';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2319,9 +2319,10 @@
     else h += '<button type="button" class="btn" data-push="on">この端末で通知を受け取る</button>';
     return h;
   }
-  function pushOn() {
-    // 「許可」の確認は、ボタンを押した流れの中ですぐに出す（iPhoneの決まり）
-    var perm = Notification.requestPermission();
+  function pushOn(permP) {
+    // 「許可」の確認は、ボタンを押した流れの中ですぐに出す（iPhoneの決まり）。もう許可してあれば聞かない
+    //   11/18d：「登録し直す」から呼ぶと、2回目の確認がボタンの流れの外になって iPhone が「許可しない」を返していた
+    var perm = permP || (Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission());
     var keyP = call('pushStatus', {});
     return Promise.all([perm, keyP, swReady()]).then(function (a) {
       if (a[0] !== 'granted') throw new Error('通知が許可されませんでした。端末の設定 → 通知 →「HVRC業務」で許可してください');
@@ -2345,8 +2346,8 @@
     var a = t.getAttribute('data-push');
     // 登録し直す：いまの宛先をやめて、新しい宛先で登録（前の登録はサーバーで止める）
     var redo = function () {
-      var perm = Notification.requestPermission();
-      return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) { return sub ? sub.unsubscribe() : true; }).then(function () { return perm; }).then(function () { return pushOn(); });
+      var perm = Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
+      return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) { return sub ? sub.unsubscribe() : true; }).then(function () { return pushOn(perm); });
     };
     var job = a === 'on' ? pushOn() : a === 'redo' ? redo() : a === 'off' ? pushOff() : call('pushTest', {}).then(function (r) { okToast('テスト通知を送りました（' + r.sent + '台' + (r.failed ? '・届かなかった ' + r.failed + '台' : '') + '）'); });
     t.disabled = true;
