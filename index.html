@@ -244,6 +244,12 @@
   .cal .dc.empty { background: transparent; border: none; }
   .cal .dc.today { border: 2px solid #F28C28; }
   .cal .dc.sel { background: #EEF3F8; border-color: var(--navy); }
+  .cal.lvpick .dc { min-height: 50px; align-items: center; justify-content: flex-start; gap: 2px; }
+  .cal.lvpick .dc.pick { background: var(--navy); border-color: var(--navy); }
+  .cal.lvpick .dc.pick .dn, .cal.lvpick .dc.pick .lvt { color: #fff; }
+  .cal.lvpick .dc.past { opacity: .55; }
+  .cal.lvpick .lvt { font-size: 10px; line-height: 1.2; font-weight: 700; padding: 0 3px; border-radius: 4px; }
+  .cal.lvpick .lvt.kokyu { background: #E3EEFB; color: #1B4F8A; } .cal.lvpick .lvt.yukyu { background: #E4F4EA; color: #146C43; } .cal.lvpick .lvt.half { background: #FFF1E0; color: #B54708; }
   .cal .dn { font-size: 13px; font-weight: 700; }
   .cal .bars { display: flex; flex-direction: column; gap: 2px; }
   .cal .bar { height: 5px; border-radius: 3px; }
@@ -364,7 +370,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-18e';
+  var SCREEN_VERSION = '2026-11-19a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -779,6 +785,7 @@
         '<div class="meta">' + esc([o.model, o.grade, o.store].filter(Boolean).join('・')) + '</div>' +
         '<div class="chips"><span class="chip kind">' + esc(o.kind) + '</span>' +
           (o.state ? '<span class="chip ' + (full ? 'done' : 'state') + '">' + esc(o.state) + '</span>' : '') +
+          (o.nochg && !full ? '<span class="chip bus">未充電</span>' : '') +
           (o.bus && !full ? '<span class="chip bus">バスバー未交換</span>' : '') + '</div>' +
         '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + Math.min(100, o.pct) + '%"></div></div>' +
         '<div class="pct">' + o.pct + '%</div></div>';
@@ -791,6 +798,24 @@
   // ---- 休み（公休・有休・半休） ----
   function fmtDay(n) { n = Number(n) || 0; return (Math.round(n * 10) / 10).toString(); }
   var lvData = null, lvYm = '', lvWho = '', lvForm = { date: '', type: '公休', half: '全日', memo: '', staffId: '' };
+  var lvSel = {}; // カレンダーで選んだ日（'yyyy-mm-dd' → true）。月を動かしても残る
+  // 休みを入れる日を選ぶカレンダー（11/19〜：タップで選ぶ → まとめて入れる）
+  function lvPickHtml(d) {
+    var y = d.y, m = d.m, first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
+    var td = new Date(), today = td.getFullYear() + '-' + ('0' + (td.getMonth() + 1)).slice(-2) + '-' + ('0' + td.getDate()).slice(-2);
+    var have = {};
+    (d.mine || []).forEach(function (x) { (have[x.date] = have[x.date] || []).push(x); });
+    var h = '<div class="cal lvpick">' + '日月火水木金土'.split('').map(function (w, i) { return '<div class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</div>'; }).join('');
+    for (var i = 0; i < first.getDay(); i++) h += '<div class="dc empty"></div>';
+    for (var dd = 1; dd <= days; dd++) {
+      var iso = y + '-' + (m < 10 ? '0' : '') + m + '-' + (dd < 10 ? '0' : '') + dd, wd = new Date(y, m - 1, dd).getDay();
+      var hv = have[iso] || [];
+      h += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (lvSel[iso] ? ' pick' : '') + (iso === today ? ' today' : '') + (iso < today ? ' past' : '') + '" data-lvday="' + iso + '"><span class="dn">' + dd + '</span>' +
+        hv.map(function (x) { var half = x.half && x.half !== '全日'; return '<span class="lvt ' + (half ? 'half' : x.type === '有休' ? 'yukyu' : 'kokyu') + '">' + esc(x.type) + (half ? (x.half === '午前' ? '前' : '後') : '') + '</span>'; }).join('') + '</button>';
+    }
+    return h + '</div>';
+  }
+  function lvSelList() { return Object.keys(lvSel).filter(function (k) { return lvSel[k]; }).sort(); }
   // 年5日の有休の取得義務（10日以上付与した人：付与日から1年以内に5日）
   function dutyHtml(LG, name, full) {
     if (!LG) return '';
@@ -807,7 +832,7 @@
   function openLeave(date) {
     setNav('#/me', '#/me');
     $('title').textContent = '休み';
-    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) { lvForm.date = date; lvYm = date.slice(0, 7); }
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) { lvForm.date = date; lvYm = date.slice(0, 7); lvSel = {}; lvSel[date] = true; } // 予定表の「休みを入れる」から来たら、その日を選んでおく
     if (!lvForm.date) { var t = new Date(); lvForm.date = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
     loading(true);
     call('leaveMonth', { ym: lvYm, staffId: lvWho }).then(function (d) { lvData = d; renderLeave(); }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
@@ -828,10 +853,11 @@
     if (LG && LG.soon) html += '<div class="advice mid">有休 ' + fmtDay(LG.soon.n) + '日 が ' + esc(LG.soon.date) + ' で期限切れになります（古い付与から先に使われます）</div>';
     // 入れる
     html += '<div class="h2">' + esc(M.name) + 'さんの休みを入れる</div>' +
-      '<input class="f" type="date" id="lvDate" value="' + esc(lvForm.date) + '">' +
+      '<div class="note">カレンダーで休む日を押して選びます（何日でも。もう一度押すと外れます。月をまたいでも選べます）</div>' + lvPickHtml(d) +
+      (function () { var L = lvSelList(); return '<div class="meta" style="margin:6px 0">' + (L.length ? '選んだ日：<b>' + L.length + '日</b>　' + L.map(function (k) { var a = k.split('-'); return Number(a[1]) + '/' + Number(a[2]); }).join('・') + '　<a href="#" data-lvclear="1">選び直す</a>' : 'まだ日を選んでいません') + '</div>'; })() +
       '<div class="seg">' + ['公休', '有休'].map(function (x) { return '<button data-lvtype="' + x + '"' + (lvForm.type === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
       '<div class="seg">' + ['全日', '午前', '午後'].map(function (x) { return '<button data-lvhalf="' + x + '"' + (lvForm.half === x ? ' class="on"' : '') + '>' + (x === '全日' ? '1日' : x + '（半休）') + '</button>'; }).join('') + '</div>' +
-      '<input class="f" id="lvMemo" placeholder="メモ（なくても可）" value="' + esc(lvForm.memo) + '"><button class="btn" data-lvadd="1">休みを入れる</button>';
+      '<input class="f" id="lvMemo" placeholder="メモ（なくても可）" value="' + esc(lvForm.memo) + '"><button class="btn" data-lvadd="1">' + (lvSelList().length > 1 ? '選んだ ' + lvSelList().length + '日に ' + esc(lvForm.type) + (lvForm.half !== '全日' ? '（' + esc(lvForm.half) + '）' : '') + ' を入れる' : '休みを入れる') + '</button>';
     // 一覧
     html += '<div class="h2">' + d.m + '月の休み（' + esc(M.name) + 'さん）</div>';
     html += d.mine.length ? '<table class="t">' + d.mine.map(function (x) {
@@ -868,7 +894,7 @@
     }
     $('main').innerHTML = html;
   }
-  function lvRead() { if ($('lvDate')) lvForm.date = $('lvDate').value; if ($('lvMemo')) lvForm.memo = $('lvMemo').value; }
+  function lvRead() { if ($('lvMemo')) lvForm.memo = $('lvMemo').value; }
   document.addEventListener('change', function (e) {
     if (location.hash.indexOf('#/leave') !== 0 || !e.target || e.target.id !== 'lvWho') return;
     lvRead(); lvWho = e.target.value; openLeave();
@@ -882,16 +908,19 @@
       if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
       lvYm = y + '-' + (m < 10 ? '0' : '') + m; lvRead(); lvForm.date = lvYm + '-01'; openLeave(); return;
     }
+    if ((t = e.target.closest('[data-lvday]'))) { lvRead(); var dk = t.getAttribute('data-lvday'); lvSel[dk] = !lvSel[dk]; var y0 = window.scrollY; renderLeave(); window.scrollTo(0, y0); return; }
+    if ((t = e.target.closest('[data-lvclear]'))) { e.preventDefault(); lvRead(); lvSel = {}; var y1 = window.scrollY; renderLeave(); window.scrollTo(0, y1); return; }
     if ((t = e.target.closest('[data-lvtype]'))) { lvRead(); lvForm.type = t.getAttribute('data-lvtype'); renderLeave(); return; }
     if ((t = e.target.closest('[data-lvhalf]'))) { lvRead(); lvForm.half = t.getAttribute('data-lvhalf'); renderLeave(); return; }
     if ((t = e.target.closest('[data-lvsee]'))) { e.preventDefault(); lvRead(); lvWho = t.getAttribute('data-lvsee'); openLeave(); window.scrollTo(0, 0); return; }
     if (e.target.closest('[data-lvadd]')) {
       lvRead();
-      if (!lvForm.date) { toast('日付を選んでください'); return; }
+      var picks = lvSelList();
+      if (!picks.length) { toast('カレンダーで休む日を押して選んでください'); return; }
       loading(true);
-      call('leaveAdd', { date: lvForm.date, type: lvForm.type, half: lvForm.half, memo: lvForm.memo, staffId: lvData.me.staffId }).then(function (d) {
-        lvData = d; lvYm = d.y + '-' + (d.m < 10 ? '0' : '') + d.m; lvForm.memo = ''; meData = null; calData = null; renderLeave();
-        if (d.warns && d.warns.length) toast(d.warns.join('／')); else okToast('休みを入れました');
+      call('leaveAdd', { dates: picks, date: picks[0], type: lvForm.type, half: lvForm.half, memo: lvForm.memo, staffId: lvData.me.staffId, ym: lvYm || (lvData.y + '-' + (lvData.m < 10 ? '0' : '') + lvData.m) }).then(function (d) {
+        lvData = d; lvYm = d.y + '-' + (d.m < 10 ? '0' : '') + d.m; lvForm.memo = ''; lvSel = {}; meData = null; calData = null; renderLeave();
+        if (d.warns && d.warns.length) toast((d.added ? d.added + '日 入れました。' : '') + d.warns.join('／')); else okToast((d.added > 1 ? d.added + '日 ' : '') + '休みを入れました');
       }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       return;
     }
@@ -1735,7 +1764,11 @@
       (d.single ? '<div class="meta vsline">ボルテージセンサー：' + ['あり', 'なし'].map(function (x) { return '<button type="button" class="vsbtn' + (d.vs === x ? ' on' : '') + '" data-ordvs="' + x + '">' + (d.vs === x ? '✓ ' : '') + x + '</button>'; }).join('') +
         (d.vs ? (d.vs === 'なし' ? '<span class="meta">（なし：配線・冷却ファンの項目は出しません）</span>' : '') : '<span class="exp">　まだ入っていません。押して選んでください</span>') + '</div>' : '') +
       '<div class="chips"><span class="chip kind">' + esc(d.kind) + '</span><span class="chip ' + (full ? 'done' : 'state') + '">' + esc(d.state) + '</span>' +
-      (function () { var c7 = (d.items || []).filter(function (it) { return it.id === 'C07'; })[0]; return !full && d.dateIso && c7 && c7.visible !== false && !c7.result ? '<span class="chip bus">バスバー未交換</span>' : ''; })() +
+      (function () {
+        var c4 = (d.items || []).filter(function (it) { return it.id === 'C04'; })[0], c7 = (d.items || []).filter(function (it) { return it.id === 'C07'; })[0];
+        return (!full && c4 && c4.visible !== false && !c4.result ? '<span class="chip bus">未充電</span>' : '') +
+          (!full && d.dateIso && c7 && c7.visible !== false && !c7.result ? '<span class="chip bus">バスバー未交換</span>' : '');
+      })() +
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
       '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
