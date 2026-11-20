@@ -371,7 +371,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-19b';
+  var SCREEN_VERSION = '2026-11-20a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2396,6 +2396,27 @@
   var meData = null, meTab = 'thisMonth';
   // ---- 小口現金（修理以外） ----
   var kgData = null, kgForm = { dir: '出金', account: '' };
+  var kgFiles = []; // 証拠書類（レシート・領収書）の写真・PDF（11/20〜）
+  // 証拠書類を送れる形に：写真は長い辺2000pxの JPEG（文字が読めるように少し大きめ）、PDF はそのまま
+  function kgFileData(file) {
+    if (/pdf/i.test(file.type) || /\.pdf$/i.test(file.name)) return new Promise(function (resolve, reject) {
+      if (file.size > 9 * 1024 * 1024) { reject(new Error('PDFが大きすぎます（9MBまで）：' + file.name)); return; }
+      var fr = new FileReader(); fr.onload = function () { resolve({ data: fr.result, name: file.name }); }; fr.onerror = function () { reject(new Error('読めませんでした：' + file.name)); }; fr.readAsDataURL(file);
+    });
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 2000, w = img.naturalWidth, h = img.naturalHeight, r = Math.min(1, max / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * r); c.height = Math.round(h * r);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve({ data: c.toDataURL('image/jpeg', 0.85), name: file.name });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('写真を読めませんでした：' + file.name)); };
+      img.src = url;
+    });
+  }
+  function kgFilesData(list) { return Promise.all((list || []).map(kgFileData)); }
   function openKg() {
     setNav('#/me', '#/me');
     $('title').textContent = '小口現金';
@@ -2417,11 +2438,17 @@
       '<input class="f" id="kgAcc" value="' + esc(f.account || '') + '" placeholder="上にないときは入力（例：旅費交通費）">' +
       '<div class="lbl2">備考（何に・誰から）</div><input class="f" id="kgLabel" value="' + esc(f.label || '') + '" placeholder="' + (f.dir === '出金' ? '例：ガソリン代　出光 行橋' : '例：○○様 部品代') + '">' +
       '<div class="lbl2">金額（円・税込＝実際に払った・受け取った金額）</div><input class="f" type="number" inputmode="numeric" id="kgAmount" value="' + esc(f.amount || '') + '" placeholder="例：3500">' +
+      '<div class="lbl2">証拠書類（レシート・領収書）</div>' +
+      (d.receiptReady ? '<label class="btn sub" style="display:block;text-align:center;margin:4px 0;cursor:pointer">📷 レシートを撮る・選ぶ（写真・PDF）<input type="file" accept="image/*,application/pdf" multiple data-kgfile="1" style="display:none"></label>' +
+        (kgFiles.length ? '<div class="meta">' + kgFiles.map(function (x, i) { return '📎 ' + esc(x.name) + ' <a href="#" data-kgfdel="' + i + '">外す</a>'; }).join('<br>') + '</div>' : '<div class="meta">' + (f.dir === '出金' ? 'レシート・領収書があれば付けてください' : '') + '</div>') +
+        '<div class="note">入れた証拠書類は Dropbox の「' + esc(String(d.receiptDir || '').split('/').pop()) + '」に、日付・金額・科目のわかる名前で入ります</div>'
+        : '<div class="meta">Dropboxとまだつながっていないので、証拠書類は付けられません（管理者：メニュー「HVRC管理」→「Dropboxと接続（写真用）」）</div>') +
       '<button class="btn" data-kgsave="1">小口現金に入れる</button></div>';
     html += '<div class="h2">アプリから入れた分（今月・先月）</div>';
     html += d.mine.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>金額<br><small>税込</small></th><th></th></tr>' + d.mine.map(function (x) {
-      return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + '・' + esc(x.by) + '</div></td><td class="n" style="color:' + (x.out ? '#B42318' : '#027A48') + '">' + (x.out ? '−' + x.out.toLocaleString() : '＋' + x.in.toLocaleString()) + '</td><td>' +
-        (x.canCancel ? '<button type="button" class="mini" style="white-space:nowrap" data-kgcancel="' + esc(x.key) + '">取消</button>' : '') + '</td></tr>';
+      return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + '・' + esc(x.by) + (x.receipts ? '　📎' + x.receipts : '') + '</div></td><td class="n" style="color:' + (x.out ? '#B42318' : '#027A48') + '">' + (x.out ? '−' + x.out.toLocaleString() : '＋' + x.in.toLocaleString()) + '</td><td>' +
+        (x.canCancel ? '<button type="button" class="mini" style="white-space:nowrap" data-kgcancel="' + esc(x.key) + '">取消</button>' : '') +
+        (d.receiptReady ? '<label class="mini" style="display:inline-block;white-space:nowrap;margin-top:4px;cursor:pointer">' + (x.receipts ? '＋📎' : '📎付ける') + '<input type="file" accept="image/*,application/pdf" multiple data-kgrc="' + esc(x.key) + '" style="display:none"></label>' : '') + '</td></tr>';
     }).join('') + '</table>' : '<div class="empty">まだありません</div>';
     html += '<div class="h2">' + esc(d.sheet) + ' の小口（新しい順）</div>';
     html += d.rows.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>入金</th><th>出金</th></tr>' + d.rows.map(function (x) {
@@ -2435,17 +2462,20 @@
     var t;
     if ((t = e.target.closest('[data-kgdir]'))) { kgRead(); kgForm.dir = t.getAttribute('data-kgdir'); kgForm.account = ''; renderKg(); return; }
     if ((t = e.target.closest('[data-kgacc]'))) { kgRead(); kgForm.account = t.getAttribute('data-kgacc'); renderKg(); return; }
+    if ((t = e.target.closest('[data-kgfdel]'))) { e.preventDefault(); kgRead(); kgFiles.splice(Number(t.getAttribute('data-kgfdel')), 1); renderKg(); return; }
     if ((t = e.target.closest('[data-kgsave]'))) {
       kgRead();
       var f = kgForm;
       if (!String(f.account || '').trim()) { toast('相手科目を選ぶか入れてください'); return; }
       if (!String(f.label || '').trim()) { toast('備考（何に・誰から）を入れてください'); return; }
       if (!(Number(f.amount) > 0)) { toast('金額を入れてください'); return; }
-      confirmSheet(f.dir + '　' + Number(f.amount).toLocaleString() + '円\n' + (f.date || kgData.today) + '　' + f.account + '　' + f.label + '\nこの内容で小口現金に入れますか？', '入れる').then(function (ok) {
+      confirmSheet(f.dir + '　' + Number(f.amount).toLocaleString() + '円\n' + (f.date || kgData.today) + '　' + f.account + '　' + f.label + (kgFiles.length ? '\n証拠書類 ' + kgFiles.length + '枚を Dropbox に入れます' : (f.dir === '出金' && kgData.receiptReady ? '\n（証拠書類なし）' : '')) + '\nこの内容で小口現金に入れますか？', '入れる').then(function (ok) {
         if (!ok) return;
         loading(true);
-        call('kgAdd', { dir: f.dir, date: f.date || kgData.today, account: f.account, label: f.label, amount: f.amount }).then(function (d) {
-          kgData = d; kgForm = { dir: f.dir, account: '' }; renderKg(); okToast(d.note);
+        kgFilesData(kgFiles).then(function (files) {
+          return call('kgAdd', { dir: f.dir, date: f.date || kgData.today, account: f.account, label: f.label, amount: f.amount, files: files });
+        }).then(function (d) {
+          kgData = d; kgForm = { dir: f.dir, account: '' }; kgFiles = []; renderKg(); okToast(d.note);
         }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
       return;
@@ -2457,6 +2487,19 @@
         kgRead(); loading(true);
         call('kgCancel', { key: key }).then(function (d) { kgData = d; renderKg(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
+    }
+  });
+
+  document.addEventListener('change', function (e) {
+    if (location.hash !== '#/kg' || !kgData || !e.target || !e.target.files) return;
+    var t = e.target, list = Array.prototype.slice.call(t.files || []);
+    if (!list.length) return;
+    if (t.hasAttribute('data-kgfile')) { kgRead(); var all = kgFiles.concat(list); if (all.length > 6) toast('証拠書類は6枚までです'); kgFiles = all.slice(0, 6); renderKg(); return; }
+    var key = t.getAttribute('data-kgrc');
+    if (key) { // あとから証拠書類を付ける
+      kgRead(); loading(true);
+      kgFilesData(list.slice(0, 6)).then(function (files) { return call('kgReceipt', { key: key, files: files }); })
+        .then(function (d) { kgData = d; renderKg(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
     }
   });
 
