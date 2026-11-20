@@ -371,7 +371,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-20a';
+  var SCREEN_VERSION = '2026-11-20b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2397,8 +2397,9 @@
   // ---- 小口現金（修理以外） ----
   var kgData = null, kgForm = { dir: '出金', account: '' };
   var kgFiles = []; // 証拠書類（レシート・領収書）の写真・PDF（11/20〜）
-  // 証拠書類を送れる形に：写真は長い辺2000pxの JPEG（文字が読めるように少し大きめ）、PDF はそのまま
+  // 証拠書類を送れる形に：写真は長い辺2800pxの JPEG（A4でも文字が読める大きさ）、PDF はそのまま
   function kgFileData(file) {
+    if (file.scanData) return Promise.resolve({ data: file.scanData, name: file.name }); // アプリでスキャンした PDF
     if (/pdf/i.test(file.type) || /\.pdf$/i.test(file.name)) return new Promise(function (resolve, reject) {
       if (file.size > 9 * 1024 * 1024) { reject(new Error('PDFが大きすぎます（9MBまで）：' + file.name)); return; }
       var fr = new FileReader(); fr.onload = function () { resolve({ data: fr.result, name: file.name }); }; fr.onerror = function () { reject(new Error('読めませんでした：' + file.name)); }; fr.readAsDataURL(file);
@@ -2406,7 +2407,7 @@
     return new Promise(function (resolve, reject) {
       var url = URL.createObjectURL(file), img = new Image();
       img.onload = function () {
-        var max = 2000, w = img.naturalWidth, h = img.naturalHeight, r = Math.min(1, max / Math.max(w, h));
+        var max = 2800, w = img.naturalWidth, h = img.naturalHeight, r = Math.min(1, max / Math.max(w, h));
         var c = document.createElement('canvas'); c.width = Math.round(w * r); c.height = Math.round(h * r);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
@@ -2417,6 +2418,275 @@
     });
   }
   function kgFilesData(list) { return Promise.all((list || []).map(kgFileData)); }
+  // ---- スキャン（11/20b〜）：撮った写真の四隅を合わせ → まっすぐに直し → 白くくっきり（カラーのまま）→ PDF に ----
+  // 外のライブラリは使わない（端末の中だけで処理）。何ページでも1つの PDF にまとめる
+  var SCAN = { MAX_SRC: 4000, MAX_OUT: 2800, MAX_PAGES: 8 };
+  function scanLoad(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight, r = Math.min(1, SCAN.MAX_SRC / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * r); c.height = Math.round(h * r);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); resolve(c);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('写真を読めませんでした')); };
+      img.src = url;
+    });
+  }
+  // 書類の四隅をさがす（明るい紙のいちばん大きなかたまり → 角）。見つからなければ少し内側の四角
+  function scanDetect(src) {
+    var W = src.width, H = src.height, k = Math.min(1, 480 / Math.max(W, H));
+    var w = Math.max(8, Math.round(W * k)), h = Math.max(8, Math.round(H * k));
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var g = c.getContext('2d'); g.drawImage(src, 0, 0, w, h);
+    var d = g.getImageData(0, 0, w, h).data, n = w * h, lum = new Uint8Array(n), hist = new Array(256).fill(0), i;
+    for (i = 0; i < n; i++) { var v = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000 | 0; lum[i] = v; hist[v]++; }
+    var sum = 0, sumB = 0, wB = 0, best = 0, th = 128;
+    for (i = 0; i < 256; i++) sum += i * hist[i];
+    for (i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; var wF = n - wB; if (!wF) break; sumB += i * hist[i]; var mB = sumB / wB, mF = (sum - sumB) / wF, b = wB * wF * (mB - mF) * (mB - mF); if (b > best) { best = b; th = i; } }
+    var lab = new Int32Array(n), q = new Int32Array(n), bestId = 0, bestSize = 0, id = 0;
+    for (i = 0; i < n; i++) {
+      if (lab[i] || lum[i] <= th) continue;
+      id++; var qh = 0, qt = 0, size = 0; q[qt++] = i; lab[i] = id;
+      while (qh < qt) {
+        var p = q[qh++], x = p % w, y = (p / w) | 0; size++;
+        if (x > 0 && !lab[p - 1] && lum[p - 1] > th) { lab[p - 1] = id; q[qt++] = p - 1; }
+        if (x < w - 1 && !lab[p + 1] && lum[p + 1] > th) { lab[p + 1] = id; q[qt++] = p + 1; }
+        if (y > 0 && !lab[p - w] && lum[p - w] > th) { lab[p - w] = id; q[qt++] = p - w; }
+        if (y < h - 1 && !lab[p + w] && lum[p + w] > th) { lab[p + w] = id; q[qt++] = p + w; }
+      }
+      if (size > bestSize) { bestSize = size; bestId = id; }
+    }
+    var inset = function () { var m = 0.05; return [[W * m, H * m], [W * (1 - m), H * m], [W * (1 - m), H * (1 - m)], [W * m, H * (1 - m)]]; };
+    if (!bestId || bestSize < n * 0.08 || bestSize > n * 0.95) return inset();
+    var tl = [0, 0, 1e9], tr = [0, 0, -1e9], br = [0, 0, -1e9], bl = [0, 0, 1e9];
+    for (i = 0; i < n; i++) {
+      if (lab[i] !== bestId) continue;
+      var xx = i % w, yy = (i / w) | 0, s1 = xx + yy, s2 = xx - yy;
+      if (s1 < tl[2]) tl = [xx, yy, s1]; if (s1 > br[2]) br = [xx, yy, s1];
+      if (s2 > tr[2]) tr = [xx, yy, s2]; if (s2 < bl[2]) bl = [xx, yy, s2];
+    }
+    return [tl, tr, br, bl].map(function (p) { return [Math.min(W, Math.max(0, (p[0] + 0.5) / k)), Math.min(H, Math.max(0, (p[1] + 0.5) / k))]; });
+  }
+  // 四角 (0,0)-(w,h) → 写真の四隅 への射影（8元の連立方程式）
+  function scanHomography(w, h, quad) {
+    var from = [[0, 0], [w, 0], [w, h], [0, h]], A = [], i, j, r;
+    for (i = 0; i < 4; i++) {
+      var x = from[i][0], y = from[i][1], X = quad[i][0], Y = quad[i][1];
+      A.push([x, y, 1, 0, 0, 0, -x * X, -y * X, X]); A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y, Y]);
+    }
+    for (i = 0; i < 8; i++) {
+      var piv = i; for (r = i + 1; r < 8; r++) if (Math.abs(A[r][i]) > Math.abs(A[piv][i])) piv = r;
+      var tmp = A[i]; A[i] = A[piv]; A[piv] = tmp;
+      if (Math.abs(A[i][i]) < 1e-12) throw new Error('四隅の形がおかしいようです。角を合わせ直してください');
+      for (r = 0; r < 8; r++) { if (r === i) continue; var f = A[r][i] / A[i][i]; for (j = i; j < 9; j++) A[r][j] -= f * A[i][j]; }
+    }
+    return A.map(function (row, k) { return row[8] / row[k]; });
+  }
+  function scanWarp(src, quad) {
+    var dist = function (a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); };
+    var w = Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2])), h = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
+    if (w < 40 || h < 40) throw new Error('範囲が小さすぎます。四隅を広げてください');
+    var s = Math.min(1, SCAN.MAX_OUT / Math.max(w, h)); w = Math.round(w * s); h = Math.round(h * s);
+    var H = scanHomography(w, h, quad), SW = src.width, SH = src.height;
+    var sd = src.getContext('2d').getImageData(0, 0, SW, SH).data;
+    var out = document.createElement('canvas'); out.width = w; out.height = h;
+    var og = out.getContext('2d'), od = og.createImageData(w, h), o = od.data, x, y, idx = 0;
+    for (y = 0; y < h; y++) {
+      var yc = y + 0.5;
+      for (x = 0; x < w; x++, idx += 4) {
+        var xc = x + 0.5, den = H[6] * xc + H[7] * yc + 1;
+        var sx = (H[0] * xc + H[1] * yc + H[2]) / den - 0.5, sy = (H[3] * xc + H[4] * yc + H[5]) / den - 0.5;
+        if (sx < 0) sx = 0; if (sy < 0) sy = 0; if (sx > SW - 1.001) sx = SW - 1.001; if (sy > SH - 1.001) sy = SH - 1.001;
+        var x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, p0 = (y0 * SW + x0) * 4, p1 = p0 + SW * 4;
+        for (var ch = 0; ch < 3; ch++) {
+          var a = sd[p0 + ch] + (sd[p0 + 4 + ch] - sd[p0 + ch]) * fx, b = sd[p1 + ch] + (sd[p1 + 4 + ch] - sd[p1 + ch]) * fx;
+          o[idx + ch] = a + (b - a) * fy;
+        }
+        o[idx + 3] = 255;
+      }
+    }
+    og.putImageData(od, 0, 0);
+    return out;
+  }
+  // 影・紙の黄ばみをとって白く（色は残す：赤いハンコなどはそのまま）
+  function scanEnhance(c) {
+    var w = c.width, h = c.height, cell = Math.max(8, Math.round(Math.max(w, h) / 60));
+    var sw = Math.max(2, Math.round(w / cell)), sh = Math.max(2, Math.round(h / cell));
+    var sc = document.createElement('canvas'); sc.width = sw; sc.height = sh;
+    var sg = sc.getContext('2d'); sg.imageSmoothingQuality = 'high'; sg.drawImage(c, 0, 0, sw, sh);
+    var sm = sg.getImageData(0, 0, sw, sh), a = sm.data, tmp = new Uint8ClampedArray(a.length), x, y, i, ch, R = 2;
+    // 文字の暗さを消す（まわりで一番明るい色 → 背景）→ ならす
+    var pass = function (useMax) {
+      tmp.set(a);
+      for (y = 0; y < sh; y++) for (x = 0; x < sw; x++) for (ch = 0; ch < 3; ch++) {
+        var acc = useMax ? 0 : 0, cnt = 0;
+        for (var dy = -R; dy <= R; dy++) { var yy = y + dy; if (yy < 0 || yy >= sh) continue;
+          for (var dx = -R; dx <= R; dx++) { var xx = x + dx; if (xx < 0 || xx >= sw) continue;
+            var v = tmp[(yy * sw + xx) * 4 + ch]; if (useMax) { if (v > acc) acc = v; } else { acc += v; cnt++; } } }
+        a[(y * sw + x) * 4 + ch] = useMax ? acc : acc / cnt;
+      }
+    };
+    pass(true); pass(false);
+    sg.putImageData(sm, 0, 0);
+    var bc = document.createElement('canvas'); bc.width = w; bc.height = h;
+    var bg = bc.getContext('2d'); bg.imageSmoothingQuality = 'high'; bg.drawImage(sc, 0, 0, w, h);
+    var bd = bg.getImageData(0, 0, w, h).data;
+    var out = document.createElement('canvas'); out.width = w; out.height = h;
+    var g = c.getContext('2d'), id = g.getImageData(0, 0, w, h), d = id.data, lut = new Uint8ClampedArray(512);
+    for (i = 0; i < 512; i++) { var t = (i / 255 - 0.08) / (0.86 - 0.08); t = t < 0 ? 0 : t > 1 ? 1 : t; lut[i] = Math.round(255 * Math.pow(t, 1.35)); }
+    for (i = 0; i < d.length; i += 4) for (ch = 0; ch < 3; ch++) {
+      var b = bd[i + ch] || 1, r = d[i + ch] * 255 / b; d[i + ch] = lut[r > 511 ? 511 : r | 0];
+    }
+    out.getContext('2d').putImageData(id, 0, 0);
+    bc.width = bc.height = 0; sc.width = sc.height = 0;
+    return out;
+  }
+  function scanRotate(c) {
+    var o = document.createElement('canvas'); o.width = c.height; o.height = c.width;
+    var g = o.getContext('2d'); g.translate(o.width, 0); g.rotate(Math.PI / 2); g.drawImage(c, 0, 0);
+    c.width = c.height = 0; return o;
+  }
+  function scanB64ToBytes(dataUrl) { var s = atob(dataUrl.split(',')[1]), u = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+  function scanBytesToB64(u) { var s = '', CH = 0x8000; for (var i = 0; i < u.length; i += CH) s += String.fromCharCode.apply(null, u.subarray(i, i + CH)); return btoa(s); }
+  // JPEG のページを並べただけの小さな PDF を作る（1ページの長い辺 = A4 の長い辺）
+  function scanPdf(pages) {
+    var parts = [], len = 0, offs = [], enc = function (s) { var u = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
+    var put = function (x) { var u = typeof x === 'string' ? enc(x) : x; parts.push(u); len += u.length; };
+    var obj = function (n, body, stream) { offs[n] = len; put(n + ' 0 obj\n' + body); if (stream) { put('\nstream\n'); put(stream); put('\nendstream'); } put('\nendobj\n'); };
+    var np = pages.length, kids = [];
+    for (var i = 0; i < np; i++) kids.push((3 + i * 3) + ' 0 R');
+    put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2, '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + np + ' >>');
+    pages.forEach(function (p, i) {
+      var n = 3 + i * 3, k = 842 / Math.max(p.w, p.h), pw = (p.w * k).toFixed(2), ph = (p.h * k).toFixed(2);
+      var cs = 'q ' + pw + ' 0 0 ' + ph + ' 0 0 cm /Im0 Do Q';
+      obj(n, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pw + ' ' + ph + '] /Resources << /XObject << /Im0 ' + (n + 2) + ' 0 R >> >> /Contents ' + (n + 1) + ' 0 R >>');
+      obj(n + 1, '<< /Length ' + cs.length + ' >>', enc(cs));
+      obj(n + 2, '<< /Type /XObject /Subtype /Image /Width ' + p.w + ' /Height ' + p.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + p.jpg.length + ' >>', p.jpg);
+    });
+    var total = 3 + np * 3, xref = len, x = 'xref\n0 ' + total + '\n0000000000 65535 f \n';
+    for (var j = 1; j < total; j++) x += ('0000000000' + offs[j]).slice(-10) + ' 00000 n \n';
+    put(x + 'trailer\n<< /Size ' + total + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n');
+    var all = new Uint8Array(len), at = 0; parts.forEach(function (u) { all.set(u, at); at += u.length; });
+    return all;
+  }
+  // 画面：scanOpen(最初の写真, 終わったら onDone({name, type, scanData, pages}))
+  var scanSt = null;
+  function scanOpen(file, onDone) {
+    scanClose();
+    var box = document.createElement('div'); box.id = 'scanBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:30;background:#1d2433;color:#fff;display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));overflow:auto';
+    document.body.appendChild(box);
+    scanSt = { box: box, pages: [], onDone: onDone, src: null, quad: null, cur: null };
+    scanTake(file);
+  }
+  function scanClose() {
+    var b = $('scanBox'); if (b) b.parentNode.removeChild(b);
+    if (scanSt) { [scanSt.src, scanSt.cur && scanSt.cur.raw, scanSt.cur && scanSt.cur.enh].forEach(function (c) { if (c) c.width = c.height = 0; }); }
+    scanSt = null;
+  }
+  function scanCamBtn(label, cls) { return '<label class="' + (cls || 'btn sub') + '" style="display:block;text-align:center;cursor:pointer;margin-top:8px">' + label + '<input type="file" accept="image/*" capture="environment" data-scantake="1" style="display:none"></label>'; }
+  function scanBind() {
+    var box = scanSt.box;
+    Array.prototype.forEach.call(box.querySelectorAll('[data-scantake]'), function (inp) {
+      inp.onchange = function () { var f = inp.files && inp.files[0]; if (f) scanTake(f); };
+    });
+  }
+  function scanHead(text) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="flex:1;font-weight:700;font-size:16px">📄 スキャン' + (scanSt.pages.length ? '（' + scanSt.pages.length + 'ページ読み取り済み）' : '') + '</div><button type="button" data-scanx="1" style="background:none;border:1px solid #fff6;color:#fff;border-radius:8px;padding:6px 12px;font-size:14px">やめる</button></div>' +
+      '<div style="font-size:14px;color:#cfd6e4;margin-bottom:8px">' + text + '</div>';
+  }
+  function scanTake(file) {
+    loading(true);
+    scanLoad(file).then(function (c) {
+      if (!scanSt) return;
+      if (scanSt.cur) scanKeep(); // 「続きのページを撮る」：今のページを確定してから次へ
+      if (scanSt.src) scanSt.src.width = scanSt.src.height = 0;
+      scanSt.src = c; scanSt.quad = scanDetect(c); scanCropView();
+    }).catch(function (er) { toast(er.message); if (scanSt && !scanSt.pages.length && !scanSt.cur && !scanSt.src) scanClose(); }).then(function () { loading(false); });
+  }
+  function scanCropView() {
+    var st = scanSt, src = st.src, W = src.width, H = src.height;
+    var pk = Math.min(1, 1600 / Math.max(W, H)), pc = document.createElement('canvas'); pc.width = Math.round(W * pk); pc.height = Math.round(H * pk);
+    pc.getContext('2d').drawImage(src, 0, 0, pc.width, pc.height);
+    var url = pc.toDataURL('image/jpeg', 0.75); pc.width = pc.height = 0;
+    st.box.innerHTML = scanHead('白い丸を<b>書類の四つの角</b>に合わせて「読み取る」を押してください') +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;min-height:0"><div id="scanWrap" style="position:relative;display:inline-block;line-height:0">' +
+      '<img id="scanImg" src="' + url + '" style="max-width:100%;max-height:calc(100vh - 230px);display:block;border-radius:4px">' +
+      '<svg id="scanSvg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;touch-action:none;overflow:visible"></svg></div></div>' +
+      '<button class="btn" data-scango="1" style="margin-top:12px">読み取る</button>' + scanCamBtn('📷 撮り直す');
+    scanBind();
+    var im = $('scanImg'); im.onload = scanDraw; if (im.complete) scanDraw();
+    var svg = $('scanSvg'), drag = -1;
+    var pt = function (e) { var r = svg.getBoundingClientRect(); return [Math.min(W, Math.max(0, (e.clientX - r.left) * W / r.width)), Math.min(H, Math.max(0, (e.clientY - r.top) * H / r.height))]; };
+    svg.addEventListener('pointerdown', function (e) {
+      var p = pt(e), r = svg.getBoundingClientRect(), k = r.width / W, bestD = 1e9;
+      drag = -1; st.quad.forEach(function (q, i) { var dd = Math.hypot(q[0] - p[0], q[1] - p[1]) * k; if (dd < bestD) { bestD = dd; drag = i; } });
+      if (bestD > 60) { drag = -1; return; }
+      e.preventDefault(); try { svg.setPointerCapture(e.pointerId); } catch (x) {}
+    });
+    svg.addEventListener('pointermove', function (e) { if (drag < 0) return; e.preventDefault(); st.quad[drag] = pt(e); scanDraw(); });
+    var up = function () { drag = -1; }; svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+  }
+  function scanDraw() {
+    var svg = $('scanSvg'); if (!svg) return;
+    var st = scanSt, r = svg.getBoundingClientRect(), k = r.width ? r.width / st.src.width : 1, R = 16 / k, q = st.quad;
+    svg.innerHTML = '<polygon points="' + q.map(function (p) { return p.join(','); }).join(' ') + '" fill="rgba(46,144,250,.18)" stroke="#2E90FA" stroke-width="2.5" vector-effect="non-scaling-stroke"/>' +
+      q.map(function (p) { return '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + R + '" fill="rgba(255,255,255,.35)" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke"/><circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (3 / k) + '" fill="#2E90FA"/>'; }).join('');
+  }
+  function scanCheckView() {
+    var st = scanSt, cur = st.cur, show = cur.mode === 'enh' ? cur.enh : cur.raw, ON = ' style="background:#2E90FA;border-color:#2E90FA;color:#fff;font-weight:700"';
+    st.box.innerHTML = scanHead('読み取れました。文字が読めるか確かめてください') +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;min-height:0"><img src="' + show.toDataURL('image/jpeg', 0.7) + '" style="max-width:100%;max-height:calc(100vh - 330px);display:block;background:#fff;border-radius:4px"></div>' +
+      '<div class="seg" style="margin-top:10px"><button type="button" data-scanmode="enh"' + (cur.mode === 'enh' ? ON : '') + '>くっきり</button><button type="button" data-scanmode="raw"' + (cur.mode === 'raw' ? ON : '') + '>そのまま</button><button type="button" data-scanrot="1">↻ 回す</button><button type="button" data-scanback="1">角を直す</button></div>' +
+      '<button class="btn" data-scandone="1" style="margin-top:6px">これで完了（' + (st.pages.length + 1) + 'ページ）</button>' +
+      (st.pages.length + 1 < SCAN.MAX_PAGES ? scanCamBtn('＋ 続きのページを撮る（長いレシートなど）') : '');
+    scanBind();
+  }
+  function scanKeep() { // 今のページを JPEG にして、キャンバスは捨てる（メモリ節約）
+    var cur = scanSt.cur; if (!cur) return;
+    var c = cur.mode === 'enh' ? cur.enh : cur.raw;
+    scanSt.pages.push({ w: c.width, h: c.height, url: c.toDataURL('image/jpeg', 0.82) });
+    cur.raw.width = cur.raw.height = 0; cur.enh.width = cur.enh.height = 0; scanSt.cur = null;
+  }
+  document.addEventListener('click', function (e) {
+    if (!scanSt) return;
+    var t = e.target.closest('[data-scanx],[data-scango],[data-scanmode],[data-scanrot],[data-scanback],[data-scandone]');
+    if (!t) return;
+    var st = scanSt;
+    if (t.hasAttribute('data-scanx')) { scanClose(); return; }
+    if (t.hasAttribute('data-scango')) {
+      loading(true);
+      setTimeout(function () {
+        try { var raw = scanWarp(st.src, st.quad); st.cur = { raw: raw, enh: scanEnhance(raw), mode: 'enh' }; scanCheckView(); }
+        catch (er) { toast(er.message); }
+        loading(false);
+      }, 30);
+      return;
+    }
+    if (t.hasAttribute('data-scanmode')) { st.cur.mode = t.getAttribute('data-scanmode'); scanCheckView(); return; }
+    if (t.hasAttribute('data-scanrot')) { st.cur.raw = scanRotate(st.cur.raw); st.cur.enh = scanRotate(st.cur.enh); scanCheckView(); return; }
+    if (t.hasAttribute('data-scanback')) { st.cur.raw.width = st.cur.raw.height = 0; st.cur.enh.width = st.cur.enh.height = 0; st.cur = null; scanCropView(); return; }
+    if (t.hasAttribute('data-scandone')) {
+      loading(true);
+      setTimeout(function () {
+        try {
+          scanKeep();
+          var pages = st.pages;
+          var pdf = scanPdf(pages.map(function (p) { return { w: p.w, h: p.h, jpg: scanB64ToBytes(p.url) }; }));
+          if (pdf.length > 9 * 1024 * 1024) throw new Error('スキャンが大きすぎます（9MBまで）。ページを減らしてください');
+          var item = { name: 'スキャン（' + pages.length + 'ページ）.pdf', type: 'application/pdf', pages: pages.length, scanData: 'data:application/pdf;base64,' + scanBytesToB64(pdf) };
+          var done = st.onDone; scanClose(); done(item);
+        } catch (er) { toast(er.message); }
+        loading(false);
+      }, 30);
+    }
+  });
+  window.addEventListener('hashchange', function () { if (scanSt) scanClose(); });
+  window.addEventListener('resize', function () { if (scanSt && $('scanSvg')) scanDraw(); });
   function openKg() {
     setNav('#/me', '#/me');
     $('title').textContent = '小口現金';
@@ -2439,16 +2709,18 @@
       '<div class="lbl2">備考（何に・誰から）</div><input class="f" id="kgLabel" value="' + esc(f.label || '') + '" placeholder="' + (f.dir === '出金' ? '例：ガソリン代　出光 行橋' : '例：○○様 部品代') + '">' +
       '<div class="lbl2">金額（円・税込＝実際に払った・受け取った金額）</div><input class="f" type="number" inputmode="numeric" id="kgAmount" value="' + esc(f.amount || '') + '" placeholder="例：3500">' +
       '<div class="lbl2">証拠書類（レシート・領収書）</div>' +
-      (d.receiptReady ? '<label class="btn sub" style="display:block;text-align:center;margin:4px 0;cursor:pointer">📷 レシートを撮る・選ぶ（写真・PDF）<input type="file" accept="image/*,application/pdf" multiple data-kgfile="1" style="display:none"></label>' +
-        (kgFiles.length ? '<div class="meta">' + kgFiles.map(function (x, i) { return '📎 ' + esc(x.name) + ' <a href="#" data-kgfdel="' + i + '">外す</a>'; }).join('<br>') + '</div>' : '<div class="meta">' + (f.dir === '出金' ? 'レシート・領収書があれば付けてください' : '') + '</div>') +
-        '<div class="note">入れた証拠書類は Dropbox の「' + esc(String(d.receiptDir || '').split('/').pop()) + '」に、日付・金額・科目のわかる名前で入ります</div>'
+      (d.receiptReady ? '<label class="btn" style="display:block;text-align:center;margin:4px 0;cursor:pointer">📄 レシートをスキャンする<input type="file" accept="image/*" capture="environment" data-kgscan="1" style="display:none"></label>' +
+        '<label class="btn sub" style="display:block;text-align:center;margin:4px 0;cursor:pointer">📷 写真・PDF を選ぶ<input type="file" accept="image/*,application/pdf" multiple data-kgfile="1" style="display:none"></label>' +
+        (kgFiles.length ? '<div class="meta">' + kgFiles.map(function (x, i) { return (x.scanData ? '📄 ' : '📎 ') + esc(x.name) + ' <a href="#" data-kgfdel="' + i + '">外す</a>'; }).join('<br>') + '</div>' : '<div class="meta">' + (f.dir === '出金' ? 'レシート・領収書があれば付けてください' : '') + '</div>') +
+        '<div class="note">スキャン：カメラで撮ると、四隅を合わせてまっすぐ・白く直し、カラーのまま PDF にします（長いレシートは何枚かに分けて1つの PDF に）。入れた証拠書類は Dropbox の「' + esc(String(d.receiptDir || '').split('/').pop()) + '」に、日付・金額・科目のわかる名前で入ります</div>'
         : '<div class="meta">Dropboxとまだつながっていないので、証拠書類は付けられません（管理者：メニュー「HVRC管理」→「Dropboxと接続（写真用）」）</div>') +
       '<button class="btn" data-kgsave="1">小口現金に入れる</button></div>';
     html += '<div class="h2">アプリから入れた分（今月・先月）</div>';
     html += d.mine.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>金額<br><small>税込</small></th><th></th></tr>' + d.mine.map(function (x) {
       return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.account) + '<div class="meta">' + esc(x.label) + '・' + esc(x.by) + (x.receipts ? '　📎' + x.receipts : '') + '</div></td><td class="n" style="color:' + (x.out ? '#B42318' : '#027A48') + '">' + (x.out ? '−' + x.out.toLocaleString() : '＋' + x.in.toLocaleString()) + '</td><td>' +
         (x.canCancel ? '<button type="button" class="mini" style="white-space:nowrap" data-kgcancel="' + esc(x.key) + '">取消</button>' : '') +
-        (d.receiptReady ? '<label class="mini" style="display:inline-block;white-space:nowrap;margin-top:4px;cursor:pointer">' + (x.receipts ? '＋📎' : '📎付ける') + '<input type="file" accept="image/*,application/pdf" multiple data-kgrc="' + esc(x.key) + '" style="display:none"></label>' : '') + '</td></tr>';
+        (d.receiptReady ? '<label class="mini" style="display:inline-block;white-space:nowrap;margin-top:4px;cursor:pointer">📄スキャン<input type="file" accept="image/*" capture="environment" data-kgrcscan="' + esc(x.key) + '" style="display:none"></label>' +
+          '<label class="mini" style="display:inline-block;white-space:nowrap;margin-top:4px;cursor:pointer">' + (x.receipts ? '＋📎' : '📎付ける') + '<input type="file" accept="image/*,application/pdf" multiple data-kgrc="' + esc(x.key) + '" style="display:none"></label>' : '') + '</td></tr>';
     }).join('') + '</table>' : '<div class="empty">まだありません</div>';
     html += '<div class="h2">' + esc(d.sheet) + ' の小口（新しい順）</div>';
     html += d.rows.length ? '<table class="t"><tr><th>日付</th><th>科目・備考</th><th>入金</th><th>出金</th></tr>' + d.rows.map(function (x) {
@@ -2494,6 +2766,21 @@
     if (location.hash !== '#/kg' || !kgData || !e.target || !e.target.files) return;
     var t = e.target, list = Array.prototype.slice.call(t.files || []);
     if (!list.length) return;
+    if (t.hasAttribute('data-kgscan')) { // スキャン → できた PDF を証拠書類に足す
+      kgRead(); t.value = '';
+      scanOpen(list[0], function (item) { if (kgFiles.length >= 6) { toast('証拠書類は6つまでです'); return; } kgFiles.push(item); renderKg(); okToast('スキャンを付けました（' + item.pages + 'ページ）'); });
+      return;
+    }
+    var rcs = t.getAttribute('data-kgrcscan');
+    if (rcs) { // あとからスキャンを付ける
+      kgRead(); t.value = '';
+      scanOpen(list[0], function (item) {
+        loading(true);
+        call('kgReceipt', { key: rcs, files: [{ data: item.scanData, name: item.name }] })
+          .then(function (d) { kgData = d; renderKg(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      });
+      return;
+    }
     if (t.hasAttribute('data-kgfile')) { kgRead(); var all = kgFiles.concat(list); if (all.length > 6) toast('証拠書類は6枚までです'); kgFiles = all.slice(0, 6); renderKg(); return; }
     var key = t.getAttribute('data-kgrc');
     if (key) { // あとから証拠書類を付ける
