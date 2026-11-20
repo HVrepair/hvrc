@@ -371,7 +371,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-20b';
+  var SCREEN_VERSION = '2026-11-20c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -3242,7 +3242,8 @@
           '<select class="f" data-crow="' + i + '" data-ck="pick" style="margin-top:4px"><option value="">① ユニットを選ぶ</option>' + cPickOpts(r) + '</select>';
         if (id) {
           var max = cur ? cur.n : (d.shelves[id] || 0);
-          html += '<div class="meta" style="margin:2px 0 0">棚：' + esc(r.grade + ' ' + r.rank) + '（' + esc(r.cat === '半年' ? '半年用' : '使用可能') + '）　' + (cur ? 'このユニットの残り <b>' + cur.n + '本</b>' : 'この棚の本数 ' + (d.shelves[id] || 0) + '本') + '</div>' +
+          html += '<div class="meta" style="margin:2px 0 0">棚：' + esc(r.grade + ' ' + r.rank) + '（' + esc(r.cat === '半年' ? '半年用' : '使用可能') + '）　' + (cur ? 'このユニットの残り <b>' + cur.n + '本</b>' : 'この棚の本数 ' + (d.shelves[id] || 0) + '本') +
+            (cur && cur.unit ? '<button type="button" class="mini" data-cfix="' + i + '" style="margin:4px 0 0 0;display:block">種類・ランクがちがう？ → 直す</button>' : '') + '</div>' +
             '<div class="lbl2" style="margin-top:6px">② 何本出す？</div>' +
             '<div style="display:flex;gap:6px;align-items:center"><input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0;margin:0;flex:1" placeholder="本">' +
             (left > 0 && left < max ? '<button type="button" class="btn sub" data-cn="' + i + '" data-v="' + left + '" style="width:auto;margin:0;padding:8px 10px">あと' + left + '本</button>' : '') +
@@ -3513,6 +3514,23 @@
     if ((t = e.target.closest('[data-ccat]'))) { cRead(); var cc = cRows[Number(t.getAttribute('data-ccat'))]; cc.cat = t.getAttribute('data-v'); cc.grade = ''; cc.rank = ''; cc.lot = ''; cc.pick = ''; cc.lo = ''; cc.hi = ''; renderOrder(false); return; }
     if ((t = e.target.closest('[data-cn]'))) { cRead(); var cn = cRows[Number(t.getAttribute('data-cn'))]; if (cn) { cn.n = t.getAttribute('data-v'); cn.nAuto = false; } renderOrder(false); return; }
     if ((t = e.target.closest('[data-cadd]'))) { cRead(); var last = cRows[cRows.length - 1] || {}; cRows.push({ cat: last.cat || '使用可能', grade: '', rank: '', lot: '', n: '', nAuto: true }); renderOrder(false); return; }
+    if ((t = e.target.closest('[data-cfix]'))) { // 検査の結果を直す → この行も正しい棚に
+      e.preventDefault(); cRead();
+      var fi = Number(t.getAttribute('data-cfix')), fr = cRows[fi], fid = fr.cat + '/' + fr.grade + '/' + fr.rank, fl = cLotOf(fid, fr.lot), fkey = current.key;
+      if (!fl) return;
+      lotFixSheet({ unitNo: fl.unit, from: fid, range: fl.range, rangeLabel: fl.rangeLabel, n: fl.n }).then(function (res) {
+        if (!res) return;
+        invData = null;
+        call('cntCharge', { key: fkey, noPf: true }).then(function (d) {
+          if (!current || current.key !== fkey) return;
+          cntData = d;
+          if (res.to === 'ジャンク') { fr.grade = ''; fr.rank = ''; fr.lot = ''; fr.pick = ''; fr.n = ''; }
+          else { var ta = res.to.split('/'); fr.cat = ta[0]; fr.grade = ta[1]; fr.rank = ta[2]; fr.pick = res.to + '#' + fr.lot; var nl = cLotOf(res.to, fr.lot); if (nl && Number(fr.n) > nl.n) fr.n = nl.n; }
+          renderOrder(false); cntPfLater(d, fkey);
+        }).catch(function (er) { toast(er.message); });
+      });
+      return;
+    }
     if ((t = e.target.closest('[data-cdel]'))) { cRead(); cRows.splice(Number(t.getAttribute('data-cdel')), 1); renderOrder(false); return; }
     if ((t = e.target.closest('[data-csave]'))) { cntSave(''); return; }
     if ((t = e.target.closest('[data-ctrans]'))) {
@@ -3890,18 +3908,68 @@
     html += '</table><button class="btn sub" data-rssave="1">内訳を保存</button>';
     $('main').innerHTML = html;
   }
+  // ---- 検査の結果を直す（11/20〜）：棚に入れたあとで「B+ ではなく B だった」など ----
+  // o：{ unitNo, from（棚ID '使用可能/G2-1/B+'）, range（'58-60'）, rangeLabel, n（残り）}。直したらサーバーの結果、やめたら null
+  function lotFixSheet(o) {
+    return new Promise(function (resolve) {
+      var a = String(o.from).split('/'), st = { cat: a[0], grade: a[1], rank: a[2], junk: false };
+      var bg = document.createElement('div'); bg.className = 'sheet-bg';
+      var seg = function (k, list, cur, lab) { return '<div class="seg" style="margin:4px 0 8px">' + list.map(function (v) { return '<button type="button" data-lf="' + k + '" data-v="' + esc(v) + '"' + (cur === v ? ' class="on"' : '') + '>' + esc(lab ? lab(v) : v) + '</button>'; }).join('') + '</div>'; };
+      var draw = function (keepN) {
+        var nv = keepN !== undefined ? keepN : String(o.n);
+        var same = !st.junk && st.cat === a[0] && st.grade === a[1] && st.rank === a[2];
+        bg.innerHTML = '<div class="sheet" style="max-height:90vh;overflow:auto"><p style="margin-bottom:6px"><b>検査の結果を直す</b></p>' +
+          '<div class="meta" style="margin-bottom:8px">' + esc(o.unitNo || 'ユニット不明') + (o.rangeLabel ? '　数値 ' + esc(o.rangeLabel) : '') + '<br>いま：' + esc((a[0] === '半年' ? '半年用' : '使用可能') + ' ' + a[1] + ' ' + a[2]) + '　残り ' + o.n + '本</div>' +
+          '<div class="lbl2">正しいのは</div>' + seg('cat', ['使用可能', '半年', 'ジャンク'], st.junk ? 'ジャンク' : st.cat, function (v) { return v === '半年' ? '半年用' : v; }) +
+          (st.junk ? '' : '<div class="lbl2">種類</div>' + seg('grade', C_G, st.grade) + '<div class="lbl2">ランク</div>' + seg('rank', C_R, st.rank)) +
+          '<div class="lbl2">何本？（このユニットの残り ' + o.n + '本）</div><input class="f" type="number" inputmode="numeric" id="lfN" value="' + esc(nv) + '">' +
+          '<input class="f" id="lfNote" placeholder="メモ（任意。例：充電のときに測り直したら B だった）">' +
+          '<div class="two" style="margin-top:8px"><button type="button" data-a="0">やめる</button><button type="button" class="danger" data-a="1"' + (same ? ' disabled style="opacity:.5"' : '') + '>' + (same ? '棚を変えてください' : '「' + esc(st.junk ? 'ジャンク' : (st.cat === '半年' ? '半年用 ' : '') + st.grade + ' ' + st.rank) + '」に直す') + '</button></div></div>';
+      };
+      bg.addEventListener('click', function (e) {
+        var t = e.target.closest('[data-lf]');
+        if (t) {
+          var k = t.getAttribute('data-lf'), v = t.getAttribute('data-v'), nv = $('lfN') ? $('lfN').value : undefined;
+          if (k === 'cat') { st.junk = v === 'ジャンク'; if (!st.junk) st.cat = v; } else st[k] = v;
+          draw(nv); return;
+        }
+        var b = e.target.closest('[data-a]');
+        if (!b && e.target !== bg) return;
+        if (!b || b.getAttribute('data-a') === '0') { document.body.removeChild(bg); resolve(null); return; }
+        if (b.disabled) return;
+        var n = Math.floor(Number($('lfN').value) || 0);
+        if (n <= 0) { toast('本数を入れてください'); return; }
+        if (n > o.n) { toast('残り（' + o.n + '本）より多いです'); return; }
+        var to = st.junk ? 'ジャンク' : st.cat + '/' + st.grade + '/' + st.rank;
+        b.disabled = true; loading(true);
+        call('cntFix', { unitNo: o.unitNo || '', range: o.range || '', from: o.from, to: to, n: n, note: $('lfNote').value })
+          .then(function (d) { document.body.removeChild(bg); d.to = to; d.n = n; okToast(d.note); if (d.notes && d.notes.length) toast(d.notes.join('／')); resolve(d); })
+          .catch(function (er) { b.disabled = false; toast(er.message); }).then(function () { loading(false); });
+      });
+      draw(); document.body.appendChild(bg);
+    });
+  }
   // ---- ユニットの追跡（このユニットのモジュールはどこへ） ----
+  var cuData = null;
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-lfix]');
+    if (!t || !cuData || location.hash.indexOf('#/inv/lot/') !== 0) return;
+    var x = cuData.left[Number(t.getAttribute('data-lfix'))]; if (!x) return;
+    lotFixSheet({ unitNo: cuData.unitNo, from: x.id, range: x.rangeRaw, rangeLabel: x.range, n: x.n }).then(function (d) { if (d) { invData = null; openCntUnit(cuData.unitNo); } });
+  });
   function openCntUnit(no) {
     setNav('#/inv', '#/inv/clog');
     $('title').textContent = no;
     loading(true);
     call('cntUnit', { unitNo: no }).then(function (u) {
+      cuData = u;
       var r = u.result;
       var html = '<div class="head"><div class="big">' + esc(u.unitNo) + '</div><div class="meta">' + esc([u.kind, u.model, u.from ? (u.from.split('/')[1] || u.from) + ' の戻り' : u.supplier, u.state].filter(Boolean).join('・')) + '</div></div>';
       html += '<table class="t"><tr><td style="white-space:nowrap">届いた</td><td>' + esc(u.arrived || '記録なし') + '</td></tr><tr><td style="white-space:nowrap">ばらした</td><td>' + esc(u.broke || '記録なし') + '</td></tr><tr><td style="white-space:nowrap">検査の登録</td><td>' + esc(u.inspected || 'まだ') + '</td></tr>' +
         (r ? '<tr><td style="white-space:nowrap">検査の結果</td><td>' + esc(r.grade) + '　2年 ' + r['2年'] + '・1年 ' + r['1年'] + '・半年 ' + r['半年'] + '・ジャンク ' + r['ジャンク'] + '（' + r.total + '本）<div class="meta">' + esc(r.detail) + '　' + esc(r.by) + '</div></td></tr>' : '') + '</table>';
       html += '<div class="h2">使った修理</div>' + (u.used.length ? '<table class="t">' + u.used.map(function (x) { return '<tr><td><a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a></td><td class="meta">' + esc(x.at) + '</td><td class="n">' + x.n + '本</td></tr>'; }).join('') + '</table>' : '<div class="empty">まだ使っていません</div>');
-      html += '<div class="h2">まだ残っている</div>' + (u.left.length ? '<table class="t">' + u.left.map(function (x) { return '<tr><td>' + esc(x.where) + (x.range ? '<div class="meta">数値 ' + esc(x.range) + '</div>' : '') + '</td><td class="n">' + x.n + '本</td></tr>'; }).join('') + '</table>' : '<div class="empty">ありません</div>');
+      html += '<div class="h2">まだ残っている</div>' + (u.left.length ? '<table class="t">' + u.left.map(function (x, i) { return '<tr><td>' + esc(x.where) + (x.range ? '<div class="meta">数値 ' + esc(x.range) + '</div>' : '') + '</td><td class="n">' + x.n + '本</td><td style="width:1%">' + (x.shelf ? '<button type="button" class="mini" style="white-space:nowrap" data-lfix="' + i + '">直す</button>' : '') + '</td></tr>'; }).join('') + '</table>' +
+        '<div class="note">検査のあとで種類・ランクのちがいがわかったら「直す」で正しい棚に付け替えられます（ユニット・数値はそのまま）</div>' : '<div class="empty">ありません</div>');
       $('main').innerHTML = html;
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
