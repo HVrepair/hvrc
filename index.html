@@ -371,7 +371,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-21a';
+  var SCREEN_VERSION = '2026-11-21b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1662,7 +1662,7 @@
     if (!force) { $('main').innerHTML = ''; openInline = ''; chargeData = null; cntData = null; chosenLane = ''; }
     loading(true);
     orderScanHandlers();
-    traceData = null; reEdit = false; rePrevOpen = false;
+    traceData = null; reEdit = false; rePrevOpen = false; plateReadMsg = ''; plateReadVal = '';
     if (/\/S\d+$/i.test(key) && !(rePrevData && rePrevData.key === key && !rePrevData.error)) { // 再修理：前回の組み合わせも同時に聞く（11/21〜）
       rePrevData = { key: key, loading: true };
       call('rePrev', { key: key }).then(function (p) { rePrevData = p; if (current && current.key === key && location.hash.indexOf('#/order/') === 0) renderOrder(false); })
@@ -2002,6 +2002,7 @@
     var payload = { key: k, plate: v };
     loading(true);
     call('orderPlate', payload).then(function (r) {
+      plateReadVal = ''; plateReadMsg = '';
       if (current && current.key === k) current = r;
       okToast((r.notes || [])[0] || '保存しました');
       var it = current.items.filter(isPlateItem)[0];
@@ -2013,10 +2014,49 @@
     var it = current.items.filter(isPhotoItem)[0];
     if (it && !it.result) { openInline = ''; send(it.id, '済'); }
   });
+  // ナンバーの写真を読む（Claude・11/21〜）：撮る → 長い辺1600pxに小さくして送る → 入力欄に入れる（保存は人が見てから）
+  var plateReadMsg = '', plateReadVal = '';
+  function plateShrink(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, 1600 / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('写真を読めませんでした')); };
+      img.src = url;
+    });
+  }
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.hasAttribute || !t.hasAttribute('data-plateshot') || !current) return;
+    var f = t.files && t.files[0]; t.value = '';
+    if (!f) return;
+    var k = current.key, box = $('oPlateRead');
+    if (box) box.innerHTML = '⏳ 読み取り中…';
+    loading(true);
+    plateShrink(f).then(function (img) { return call('plateRead', { image: img }); }).then(function (r) {
+      if (!current || current.key !== k) return;
+      if (!r.found) { plateReadMsg = '<span style="color:#B42318">読めませんでした：' + esc(r.note || '') + '（近づいて、正面から撮り直してください）</span>'; }
+      else {
+        plateReadVal = r.plate;
+        var inp = $('oPlate'); if (inp) { inp.value = r.plate; inp.style.background = '#FFF8DB'; }
+        plateReadMsg = '読み取り：<b>' + esc(r.plate) + '</b>（自信：' + esc(r.confidence) + '）' + (r.note ? '　' + esc(r.note) : '') +
+          (r.confidence === '低' ? '<br><span style="color:#B42318">読みにくい所があります。写真と見くらべて直してください</span>' : '<br>まちがいがなければ「保存」を押してください');
+      }
+      if ($('oPlateRead')) $('oPlateRead').innerHTML = plateReadMsg;
+    }).catch(function (er) { toast(er.message); if ($('oPlateRead')) $('oPlateRead').innerHTML = '<span style="color:#B42318">' + esc(er.message) + '</span>'; })
+      .then(function () { loading(false); });
+  });
   function isPlateItem(it) { return it && (it.id === 'C21' || /エラー内容と車の傷/.test(String(it.label || ''))); }
   function plateHtml(it) {
     var single = !!current.single;
-    return '<div class="lbl2">車のナンバー' + (single ? '（わかれば）' : '') + '</div><input class="f" id="oPlate" value="' + esc(current.plate || '') + '" placeholder="例：北九州 300 さ 12-34" autocomplete="off">' +
+    return '<div class="lbl2">車のナンバー' + (single ? '（わかれば）' : '') + '</div>' +
+      '<label class="btn sub" style="display:block;text-align:center;cursor:pointer;margin:0 0 6px">📷 ナンバーを撮って読み取る<input type="file" accept="image/*" capture="environment" data-plateshot="1" style="display:none"></label>' +
+      '<div id="oPlateRead" class="meta" style="margin:0 0 4px">' + (plateReadMsg || 'プレートに近づいて、正面から撮ってください。読んだ文字が下に入ります（まちがいがないか見てから保存）') + '</div>' +
+      '<input class="f" id="oPlate" value="' + esc(plateReadVal || current.plate || '') + '" placeholder="例：北九州 300 さ 12-34" autocomplete="off"' + (plateReadVal ? ' style="background:#FFF8DB"' : '') + '>' +
       '<div class="meta" style="margin:2px 0 8px">受注シートの' + (single ? 'AF列（単体販売の備考欄）に「ナンバー：…」' : '備考に「ナンバー：…」') + 'と書きます。過去の修理をさがすときにも使えます</div>' +
       '<button class="btn" data-platedone="1">保存して、済にする</button>' +
       '<button class="btn sub" data-platesave="1" style="margin-top:6px">保存だけ（済はまだ）</button>';
