@@ -371,7 +371,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-20d';
+  var SCREEN_VERSION = '2026-11-21a';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1662,7 +1662,12 @@
     if (!force) { $('main').innerHTML = ''; openInline = ''; chargeData = null; cntData = null; chosenLane = ''; }
     loading(true);
     orderScanHandlers();
-    traceData = null; reEdit = false;
+    traceData = null; reEdit = false; rePrevOpen = false;
+    if (/\/S\d+$/i.test(key) && !(rePrevData && rePrevData.key === key && !rePrevData.error)) { // 再修理：前回の組み合わせも同時に聞く（11/21〜）
+      rePrevData = { key: key, loading: true };
+      call('rePrev', { key: key }).then(function (p) { rePrevData = p; if (current && current.key === key && location.hash.indexOf('#/order/') === 0) renderOrder(false); })
+        .catch(function (er) { rePrevData = { key: key, error: er.message, list: [] }; });
+    }
     // 前に開いたときのデータがあれば、待たずに先に出す（新しいのが届いたら入れ替える。11/16〜）
     var memo = !force ? orderMemGet(key) : null;
     if (memo) { current = memo; current._stale = true; renderOrder(true); }
@@ -1774,7 +1779,7 @@
       (d.payment ? '<span class="chip">' + esc(d.payment) + '</span>' : '') + '</div>' +
       '<div class="pbar' + (full ? ' full' : '') + '"><div style="width:' + d.pct + '%"></div></div><div class="pct">' + d.pct + '%</div>' +
       '<div class="flag"><span>紹介割あり</span><button class="switch' + (d.flags.referral ? ' on' : '') + '" data-flag="referral" aria-label="紹介割あり"></button></div></div>' +
-      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + traceHtml() + orderPfHtml(d);
+      '<div class="note" style="margin:-4px 0 8px">左の□を押したまま上下になぞると、まとめてチェックできます</div>' + reHtml() + rePrevHtml() + traceHtml() + orderPfHtml(d);
     if (d.cancel) html += '<div class="warnbox"><b>この受注はキャンセルです</b>（一覧・カレンダー・集計には出ません）<button class="btn sub" data-uncancel="1" style="margin-top:6px">キャンセルを取り消す</button></div>';
     if (d.hidden) html += '<div class="warnbox">この受注はアプリの一覧に出していません（' + esc(d.hidden) + '）<button class="btn sub" data-jobshow="1" style="margin-top:6px">アプリに出す</button></div>';
     var stage = '', section = '', firstOpen = '';
@@ -1810,6 +1815,46 @@
     $('main').innerHTML = html;
     if (scroll && firstOpen) { var el = $('it-' + firstOpen); if (el) el.scrollIntoView({ block: 'center' }); }
   }
+  // ---- 再修理：前回の組み合わせ（11/21〜） ----
+  var rePrevData = null, rePrevOpen = false;
+  function rePrevLinesText(x) {
+    if (!x.lines.length) return '';
+    return x.lines.map(function (l) { return esc(l.label.replace(/^使用可能 /, '')) + ' ×' + l.n + (l.unit || l.range ? '（' + esc([l.unit, l.range].filter(Boolean).join(' ')) + '）' : ''); }).join('・');
+  }
+  function rePrevOne(x, small) {
+    var head = '<b>' + esc(x.no) + '</b>（' + esc(x.kind) + '・' + esc(x.date || '日付なし') + (x.days !== null && x.days !== undefined ? '・' + x.days + '日前' : '') + '）' + (x.grade ? '　' + esc(x.grade) : '');
+    var body = '';
+    if (x.lines.length) body += '<div>' + rePrevLinesText(x) + '　<b>計 ' + x.total + '本</b>' + (x.kind === '元の修理' && x.need && x.total !== x.need ? '（' + x.model + ' は ' + x.need + '本）' : '') + '</div>';
+    if (x.content || x.test || x.min) body += '<div class="meta">' + esc([x.content ? 'バッテリー内容 ' + x.content : '', x.test ? '放電テスト ' + x.test : '', x.min ? 'MIN値 ' + x.min : ''].filter(Boolean).join('　')) + '</div>';
+    if (!body) body = '<div class="meta">組み合わせの記録がありません（受注シートの「バッテリー内容」も空です）</div>';
+    if (!small) body += '<div class="meta">' + esc([x.caseSerial ? 'ケース ' + x.caseSerial : '', x.staff ? '担当 ' + x.staff : '', x.reason ? '理由 ' + x.reason : ''].filter(Boolean).join('　')) + '</div>' +
+      (x.lines.length ? '<div class="meta"><a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + ' を開く</a></div>' : '');
+    return '<div style="margin-top:6px">' + head + body + '</div>';
+  }
+  function rePrevHtml() {
+    var d = current; if (!d || !d.rerepair) return '';
+    var p = rePrevData;
+    if (!p || p.key !== d.key || p.loading) return '<div class="card"><div class="row1"><span class="no">前回の組み合わせ</span><span class="date">読み込み中…</span></div></div>';
+    if (p.error) return '<div class="card"><div class="row1"><span class="no">前回の組み合わせ</span></div><div class="meta">読めませんでした（' + esc(p.error) + '）</div></div>';
+    if (!p.list.length) return '<div class="card"><div class="row1"><span class="no">前回の組み合わせ</span></div><div class="meta">' + (p.parent ? '元の修理「' + esc(p.parent) + '」が受注シートに見つかりませんでした' : '受注シートの「親修理#」が空なので、元の修理がわかりません') + '</div></div>';
+    // 元の修理 → その後の再修理（古い順）。再修理は入れ替えた分だけのことが多いので、全部ならべる（多いときは閉じておく）
+    var many = p.list.length > 3, show = many && !rePrevOpen ? [p.list[0], p.list[p.list.length - 1]] : p.list;
+    var h = '<div class="card"><div class="row1"' + (many ? ' data-reprevopen="1" style="cursor:pointer"' : '') + '><span class="no">前回の組み合わせ</span><span class="date">' + (many ? (rePrevOpen ? '閉じる' : '全部 ' + p.list.length + '件') : '') + '</span></div>';
+    h += show.map(function (x, i) { return (i ? '<hr style="border:0;border-top:1px solid #EAECF0;margin:8px 0">' + (x.kind === '前の再修理' ? '<div class="meta">↓ その後の再修理（入れ替えた分）</div>' : '') : '') + rePrevOne(x); }).join('');
+    return h + '</div>';
+  }
+  /** 充電開始の画面の上に出す1行（前回の組み合わせ） */
+  function rePrevChargeHtml() {
+    var p = rePrevData;
+    if (!current || !current.rerepair || !p || p.key !== current.key || !p.list || !p.list.length) return '';
+    var later = p.list.slice(1).filter(function (x) { return x.total; });
+    return '<div class="advice" style="margin:4px 0 8px">🔁 前回 ' + rePrevOne(p.list[0], true).replace(/^<div style="margin-top:6px">/, '<div>') +
+      (later.length ? '<div class="meta">その後：' + later.map(function (x) { return esc(x.no) + ' で ' + rePrevLinesText(x); }).join('／') + '</div>' : '') + '</div>';
+  }
+  document.addEventListener('click', function (e) {
+    if (!current || location.hash.indexOf('#/order/') !== 0) return;
+    if (e.target.closest('[data-reprevopen]')) { rePrevOpen = !rePrevOpen; renderOrder(false); }
+  });
   // ---- 再修理の理由（S の受注） ----
   var reEdit = false;
   function reHtml() {
@@ -3211,7 +3256,7 @@
     var d = cntData;
     if (!d || d.key !== current.key) return '<div class="panel">' + chargeModeSeg() + '読み込み中…</div>';
     var G = ['G2-1', 'G2-2', 'G2-3', 'G3'], R = ['A', 'B+', 'B', 'C'];
-    var html = '<div class="panel">' + chargeModeSeg();
+    var html = '<div class="panel">' + chargeModeSeg() + rePrevChargeHtml();
     html += '<div><span class="cnt">' + d.have + ' / ' + (d.need || '?') + '本</span>　<span class="meta">' + esc(d.grade) + '（' + esc(d.cat === '半年' ? '半年用' : '使用可能') + 'の棚から）</span></div>';
     if (d.from.length) html += '<div class="meta">出した棚：' + d.from.map(function (f) { return esc(f.label) + ' ' + f.n + '本'; }).join('・') + '</div>';
     html += guideHtml();
