@@ -300,6 +300,19 @@
   .clday { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin: 0 0 8px; }
   .clday.today { border: 2px solid #F28C28; }
   .clday h4 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+  .dc .tdb { display: block; font-size: 9px; line-height: 13px; color: #8A4B00; background: #FFF1D6; border-left: 2px solid #E08A00; border-radius: 2px; padding: 0 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+  .dc .tdb.late { color: #B42318; background: #FDE8E7; border-left-color: #B42318; }
+  .tdbox .tdrow { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+  .tdbox .tdrow:first-of-type { border-top: 0; }
+  .tdck { flex: 0 0 auto; width: 30px; height: 30px; border: 2px solid #98A2B3; border-radius: 8px; background: #fff; font-size: 18px; line-height: 24px; color: #fff; padding: 0; }
+  .tdck.on { background: #2E7D4F; border-color: #2E7D4F; }
+  .tdrow .tt { font-weight: 700; font-size: 15px; }
+  .tdrow.done .tt { text-decoration: line-through; color: #98A2B3; font-weight: 400; }
+  .tdrow .late { color: #B42318; font-weight: 700; }
+  .tdwho { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+  .tdwho button { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 6px 12px; font-size: 14px; }
+  .tdwho button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+  @media (min-width: 700px) { .dc .tdb { font-size: 12px; line-height: 17px; } }
   .clrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px dashed var(--line); font-size: 14px; cursor: pointer; }
   .clrow .t { width: 44px; flex: none; font-variant-numeric: tabular-nums; color: var(--sub); }
   .clrow .sb { width: 8px; height: 14px; border-radius: 2px; flex: none; align-self: center; }
@@ -371,7 +384,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-21b';
+  var SCREEN_VERSION = '2026-11-21c';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -553,6 +566,69 @@
 
   // ---- 予定（カレンダー） ----
   var calData = null, calSel = 0, calSelNext = 0, evOpen = false, evEdit = '';
+  // ---- やること（リマインダー。11/21〜） ----
+  var tdForm = null; // 入れる・直すフォーム：{ id?, date, time, title, memo, who:[], notify }
+  var tdShowDone = false, tdFilter = 'mine';
+  try { tdFilter = localStorage.getItem('hv_tdfilter') || 'mine'; } catch (e) { /* なくても動く */ }
+  function tdList() { return (calData && calData.todos && calData.todos.list) || []; }
+  function tdFormRead() {
+    if (!tdForm) return;
+    ['title', 'date', 'time', 'memo'].forEach(function (k) { var el = $('td_' + k); if (el) tdForm[k] = el.value; });
+    var nt = $('td_notify'); if (nt) tdForm.notify = nt.checked;
+  }
+  function tdFormOpen(x, date) {
+    var me = calData && calData.todos ? calData.todos.me : '';
+    tdForm = x ? { id: x.id, date: x.date, time: x.time ? ('0' + x.time).slice(-5) : '', title: x.title, memo: x.memo, who: x.who === 'ALL' ? ['ALL'] : x.who.split(',').filter(Boolean), notify: x.notify }
+      : { date: date || (calData && calData.todos ? calData.todos.today : ''), time: '', title: '', memo: '', who: me ? [me] : [], notify: true };
+  }
+  function tdFormHtml() {
+    var f = tdForm, staff = (calData.todos && calData.todos.staff) || [];
+    var on = function (id) { return f.who.indexOf(id) >= 0; };
+    return '<div class="card evc" style="background:#FFFBF2;border-color:#F3D9A4"><div class="row1"><span class="no">' + (f.id ? 'やることを直す' : 'やることを入れる') + '</span></div>' +
+      '<input class="f" id="td_title" value="' + esc(f.title) + '" placeholder="やること（例：〇〇さんに見積もりを送る・部品を注文する）">' +
+      '<div class="lbl2">期限</div><div style="display:flex;gap:6px"><input class="f" type="date" id="td_date" value="' + esc(f.date) + '" style="flex:1.3;min-width:0"><input class="f" type="time" id="td_time" value="' + esc(f.time) + '" style="flex:1;min-width:0"></div>' +
+      '<div class="lbl2">担当（何人でも）</div><div class="tdwho"><button type="button" data-tdwho="ALL"' + (on('ALL') ? ' class="on"' : '') + '>全員</button>' +
+      staff.map(function (x) { return '<button type="button" data-tdwho="' + esc(x.id) + '"' + (on(x.id) ? ' class="on"' : '') + '>' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+      '<input class="f" id="td_memo" value="' + esc(f.memo) + '" placeholder="メモ（なくても可）">' +
+      '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="td_notify" style="width:22px;height:22px"' + (f.notify ? ' checked' : '') + '> 🔔 担当の人に通知する</label>' +
+      '<div class="meta" style="margin:-2px 0 8px">期限の日の朝8時（時刻を入れたら10分前）。終わっていなければ、次の朝8時にもう1回</div>' +
+      '<button class="btn" data-tdsave="1">' + (f.id ? '直す' : '入れる') + '</button>' +
+      (f.id ? '<button class="btn sub" data-tddel="' + esc(f.id) + '" style="color:#B42318">取り消す（消す）</button>' : '') +
+      '<button class="btn sub" data-tdclose="1">やめる</button></div>';
+  }
+  function tdRowHtml(x, showDate) {
+    return '<div class="tdrow' + (x.done ? ' done' : '') + '"><button type="button" class="tdck' + (x.done ? ' on' : '') + '" data-tddone="' + esc(x.id) + '" aria-label="終わった">' + (x.done ? '✓' : '') + '</button>' +
+      '<div style="flex:1;min-width:0"><div class="tt">' + esc(x.title) + '</div>' +
+      '<div class="meta">' + (showDate ? (x.late ? '<span class="late">期限切れ ' + esc(x.label) + '</span>' : x.today ? '<b>今日まで</b>' : esc(x.label) + 'まで') : '') + (x.time ? ' ' + esc(x.time) : '') +
+      '　担当：' + esc(x.whoNames) + (x.notify ? ' 🔔' : '') + '</div>' +
+      (x.memo ? '<div class="meta">' + esc(x.memo) + '</div>' : '') +
+      (x.done ? '<div class="meta" style="font-size:11px">終わった：' + esc(x.doneBy + ' ' + x.doneAt) + '</div>' : '') + '</div>' +
+      (x.done ? '' : '<button type="button" class="mini" data-tdedit="' + esc(x.id) + '">直す</button>') + '</div>';
+  }
+  /** 予定の画面のいちばん上：まだのやること（自分の分／みんな） */
+  function tdSectionHtml() {
+    if (!calData || !calData.todos) return '';
+    var all = tdList(), open = all.filter(function (x) { return !x.done; });
+    var mine = open.filter(function (x) { return x.mine; });
+    var show = tdFilter === 'all' ? open : mine;
+    var late = show.filter(function (x) { return x.late; }).length;
+    var h = '<div class="card tdbox" style="margin-bottom:12px"><div class="row1"><span class="no">✅ やること' + (late ? '　<span class="late" style="color:#B42318">期限切れ ' + late + '</span>' : '') + '</span>' +
+      '<button type="button" class="mini" data-tdnew="1">＋ 入れる</button></div>' +
+      '<div class="seg" style="margin:6px 0"><button type="button" data-tdfilter="mine"' + (tdFilter !== 'all' ? ' class="on"' : '') + '>自分の分 ' + mine.length + '</button><button type="button" data-tdfilter="all"' + (tdFilter === 'all' ? ' class="on"' : '') + '>みんな ' + open.length + '</button></div>';
+    if (tdForm && !tdForm.fromDay) h += tdFormHtml();
+    h += show.length ? show.map(function (x) { return tdRowHtml(x, true); }).join('') : '<div class="meta" style="padding:6px 0">' + (tdFilter === 'all' ? 'まだのやることはありません' : '自分が担当のやることはありません') + '</div>';
+    var done = all.filter(function (x) { return x.done; });
+    if (done.length) {
+      h += '<div style="margin-top:6px"><button type="button" class="mini" data-tdshowdone="1">' + (tdShowDone ? '終わったものを閉じる' : '終わったもの（' + done.length + '）を見る') + '</button></div>';
+      if (tdShowDone) h += done.map(function (x) { return tdRowHtml(x, true); }).join('');
+    }
+    return h + '</div>';
+  }
+  /** その日が期限のやること（カレンダーのマス・その日の中身） */
+  function tdOfDay(d, day) {
+    var iso = d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (day < 10 ? '0' : '') + day;
+    return tdList().filter(function (x) { return x.date === iso; });
+  }
   var STORE_COLOR = { '苅田': '#1B2A3A', '行橋': '#1B2A3A', 'インター': '#2563A8', '大橋': '#2563A8', '出張': '#F28C28', '営業': '#2E7D4F' };
   function calColor(o) { return o.kind === '再修理' ? '#B42318' : (STORE_COLOR[o.store] || '#8A8F96'); }
   function openCal(ym) {
@@ -603,6 +679,7 @@
       html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === opt.sel ? ' sel' : '') + '" ' + attr + '="' + day + '">' +
         '<span class="dtop"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '件</span>' : '') + '</span>' +
         (lvs.length ? '<span class="lvn">' + lvs.map(function (x) { return lvChip(x, false); }).join('') + '</span>' : '') +
+        (function () { var td = d.todos ? tdOfDay(d, day).filter(function (x) { return !x.done; }) : []; return td.length ? '<span class="tdb' + (td.some(function (x) { return x.late; }) ? ' late' : '') + '">✅' + (td.length > 1 ? td.length + ' ' : '') + esc(td.length === 1 ? td[0].title : 'やること') + '</span>' : ''; })() +
         evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '🔒' : '') + (ev.notify ? '🔔' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
         list.slice(0, Math.max(room, 1)).map(function (o) { return '<span class="rc' + (o.pct >= 100 ? ' done' : '') + '" style="border-left-color:' + calColor(o) + '">' + esc((o.time ? o.time + ' ' : '') + calShort(o.name)) + '</span>'; }).join('') +
         (list.length > Math.max(room, 1) ? '<span class="more">＋' + (list.length - Math.max(room, 1)) + '件</span>' : '') + '</button>';
@@ -614,6 +691,7 @@
     var list = d.days[day] || [], evs = (d.events || {})[day] || [], lvs = (d.leaves || {})[day] || [];
     var h = '';
     if (lvs.length) h += '<div class="meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') + '</div>';
+    if (d.todos) h += tdOfDay(d, day).map(function (x) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(x.time || '') + '</span><span class="sb" style="background:' + (x.late ? '#B42318' : '#E08A00') + (x.done ? ';opacity:.4' : '') + '"></span><span' + (x.done ? ' style="text-decoration:line-through;color:#98A2B3"' : '') + '>✅ ' + esc(x.title) + '<small class="meta">　担当：' + esc(x.whoNames) + '</small></span></div>'; }).join('');
     h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '🔒 ' : '') + esc(ev.title) + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + '</span></div>'; }).join('');
     h += list.map(function (o) {
       return '<div class="clrow" data-key="' + esc(o.key) + '"><span class="t">' + esc(o.time || '―') + '</span><span class="sb" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.4' : '') + '"></span><span><b>' + esc(o.no) + '</b> ' + esc(o.name) + '<small class="meta">　' + esc([o.model, o.store, o.kubun].filter(Boolean).join('・')) + (o.pct >= 100 ? '・完了' : '') + '</small></span></div>';
@@ -636,10 +714,11 @@
     var html = '<div class="calhead"><button type="button" data-calm="-1">◀</button><b>' + d.y + '年' + d.m + '月</b>' +
       '<span><button type="button" class="thism" data-calm="0">今月</button> <button type="button" data-calm="1">▶</button></span></div>';
     html += '<div class="calview"><button type="button" data-calview="grid"' + (calView !== 'list' ? ' class="on"' : '') + '>カレンダー</button><button type="button" data-calview="list"' + (calView === 'list' ? ' class="on"' : '') + '>一覧（1日ずつ）</button></div>';
+    html += tdSectionHtml();
     if (calView === 'list') {
       var lastD = new Date(d.y, d.m, 0).getDate(), any = false;
       for (var dd = 1; dd <= lastD; dd++) {
-        var has = (d.days[dd] || []).length || ((d.events || {})[dd] || []).length || ((d.leaves || {})[dd] || []).length;
+        var has = (d.days[dd] || []).length || ((d.events || {})[dd] || []).length || ((d.leaves || {})[dd] || []).length || (d.todos && tdOfDay(d, dd).length);
         if (!has && dd !== d.today) continue;
         any = true;
         var dt0 = new Date(d.y, d.m - 1, dd), w0 = dt0.getDay();
@@ -662,6 +741,13 @@
       var lvs = (d.leaves || {})[calSel] || [];
       html += '<div class="note" style="margin:-4px 0 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">' + (lvs.length ? '休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') : '休みの人はいません') +
         '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>';
+      // やること（その日が期限）
+      if (d.todos) {
+        var tds = tdOfDay(d, calSel);
+        if (tds.length) html += '<div class="card tdbox">' + tds.map(function (x) { return tdRowHtml(x, false); }).join('') + '</div>';
+        if (tdForm && tdForm.fromDay) html += tdFormHtml();
+        else html += '<button class="btn sub" data-tdnew="day">＋ この日が期限のやることを入れる</button>';
+      }
       // 修理以外の予定
       var evs = (d.events || {})[calSel] || [];
       html += evs.map(function (ev) {
@@ -707,6 +793,54 @@
   document.addEventListener('click', function (e) {
     if (location.hash.indexOf('#/cal') !== 0 || !calData) return;
     var t;
+    // ---- やること ----
+    if ((t = e.target.closest('[data-tdfilter]'))) { tdFormRead(); tdFilter = t.getAttribute('data-tdfilter'); try { localStorage.setItem('hv_tdfilter', tdFilter); } catch (er) { /* なくても動く */ } renderCal(); return; }
+    if (e.target.closest('[data-tdshowdone]')) { tdFormRead(); tdShowDone = !tdShowDone; renderCal(); return; }
+    if ((t = e.target.closest('[data-tdnew]'))) {
+      var fromDay = t.getAttribute('data-tdnew') === 'day';
+      tdFormOpen(null, fromDay ? calData.y + '-' + (calData.m < 10 ? '0' : '') + calData.m + '-' + (calSel < 10 ? '0' : '') + calSel : '');
+      tdForm.fromDay = fromDay; evOpen = false; evEdit = ''; renderCal(); var tt0 = $('td_title'); if (tt0) tt0.focus(); return;
+    }
+    if ((t = e.target.closest('[data-tdedit]'))) {
+      var xe = tdList().filter(function (x) { return x.id === t.getAttribute('data-tdedit'); })[0];
+      if (xe) { tdFormOpen(xe); tdForm.fromDay = !!t.closest('.tdbox') && !t.closest('.tdbox').querySelector('[data-tdfilter]'); renderCal(); var tt1 = $('td_title'); if (tt1) tt1.scrollIntoView({ block: 'center' }); }
+      return;
+    }
+    if (e.target.closest('[data-tdclose]')) { tdForm = null; renderCal(); return; }
+    if ((t = e.target.closest('[data-tdwho]'))) {
+      tdFormRead();
+      var wid = t.getAttribute('data-tdwho'), w = tdForm.who;
+      if (wid === 'ALL') tdForm.who = w.indexOf('ALL') >= 0 ? [] : ['ALL'];
+      else { w = w.filter(function (x) { return x !== 'ALL'; }); tdForm.who = w.indexOf(wid) >= 0 ? w.filter(function (x) { return x !== wid; }) : w.concat([wid]); }
+      renderCal(); return;
+    }
+    var tdCall = function (action, p, keepForm) {
+      loading(true);
+      return call(action, p).then(function (r) { calData.todos = r; if (!keepForm) tdForm = null; memPut('cal', calData); renderCal(); if (r.note) okToast(r.note); })
+        .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+    };
+    if (e.target.closest('[data-tdsave]')) {
+      tdFormRead();
+      var f = tdForm;
+      if (!String(f.title || '').trim()) { toast('やることを入れてください'); return; }
+      if (!f.date) { toast('期限の日を選んでください'); return; }
+      if (!f.who.length) { toast('担当を選んでください'); return; }
+      tdCall(f.id ? 'todoEdit' : 'todoAdd', { id: f.id, title: f.title, date: f.date, time: f.time, memo: f.memo, who: f.who, notify: !!f.notify });
+      return;
+    }
+    if ((t = e.target.closest('[data-tddel]'))) {
+      var did = t.getAttribute('data-tddel');
+      confirmSheet('このやることを取り消しますか？（リストから消えます）', '取り消す').then(function (ok) { if (ok) tdCall('todoDel', { id: did }); });
+      return;
+    }
+    if ((t = e.target.closest('[data-tddone]'))) {
+      var xd = tdList().filter(function (x) { return x.id === t.getAttribute('data-tddone'); })[0];
+      if (!xd) return;
+      tdFormRead();
+      xd.done = !xd.done; t.classList.toggle('on', xd.done); t.textContent = xd.done ? '✓' : ''; // 先に見た目を変える
+      tdCall('todoDone', { id: xd.id, done: xd.done }, true);
+      return;
+    }
     if ((t = e.target.closest('[data-calm]'))) {
       var n = Number(t.getAttribute('data-calm'));
       if (n === 0) { location.hash = '#/cal/' + new Date().getFullYear() + '-' + (new Date().getMonth() + 1); return; }
@@ -715,7 +849,7 @@
     if ((t = e.target.closest('[data-calview]'))) { calView = t.getAttribute('data-calview'); try { localStorage.setItem('hv_calview', calView); } catch (er) { /* なくても動く */ } renderCal(); return; }
     if ((t = e.target.closest('.clrow[data-key]'))) { location.hash = '#/order/' + encodeURIComponent(t.getAttribute('data-key')); return; }
     if ((t = e.target.closest('[data-cald]'))) {
-      calSel = Number(t.getAttribute('data-cald')); evOpen = false; evEdit = '';
+      calSel = Number(t.getAttribute('data-cald')); evOpen = false; evEdit = ''; if (tdForm && tdForm.fromDay) tdForm = null;
       if (calView === 'list') { calView = 'grid'; try { localStorage.setItem('hv_calview', 'grid'); } catch (er) { /* なくても動く */ } }
       renderCal();
       var hd = document.querySelector('.h2'); if (hd && t.closest('.cal')) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
