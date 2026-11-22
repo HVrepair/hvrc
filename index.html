@@ -384,7 +384,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-22a';
+  var SCREEN_VERSION = '2026-11-22d';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -527,7 +527,7 @@
   $('reload').addEventListener('click', function () {
     if (location.hash === '#/new') return; // 入力中の内容を消さない
     FRESH = true;
-    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/fl' || location.hash === '#/kg' || location.hash === '#/etc' || location.hash === '#/find') { reData = null; etcData = null; if (location.hash === '#/find') fIdx = null; stData = null; pfData = null; bidData = null; flData = null; route(); } else loadList(true);
+    if (current) openOrder(current.key, true); else if (location.hash === '#/me') openMe(); else if (location.hash.indexOf('#/inv') === 0 || location.hash.indexOf('#/cal') === 0 || location.hash === '#/hidden' || location.hash === '#/rere' || location.hash.indexOf('#/leave') === 0 || location.hash === '#/stats' || location.hash === '#/profit' || location.hash === '#/fl' || location.hash === '#/can' || location.hash === '#/kg' || location.hash === '#/etc' || location.hash === '#/find') { reData = null; etcData = null; if (location.hash === '#/find') fIdx = null; stData = null; pfData = null; bidData = null; flData = null; route(); } else loadList(true);
   });
   function route() {
     var h = location.hash || '#/list';
@@ -554,6 +554,7 @@
     else if (h === '#/stats') openStats();
     else if (h === '#/profit') openProfit();
     else if (h === '#/fl') openFl();
+    else if (h === '#/can') openCan();
     else if (h === '#/inv/plan') openPlan();
     else if (h === '#/inv/suppliers') openSuppliers();
     else if (h === '#/inv/junk') openJunk();
@@ -567,6 +568,7 @@
 
   // ---- 予定（カレンダー） ----
   var calData = null, calSel = 0, calSelNext = 0, evOpen = false, evEdit = '';
+  function evWhoGet(pre) { return Array.prototype.map.call(document.querySelectorAll('#' + pre + 'Who button.on'), function (b) { return b.getAttribute('data-evwho'); }); }
   // ---- やること（リマインダー。11/21〜） ----
   var tdForm = null; // 入れる・直すフォーム：{ id?, date, time, title, memo, who:[], notify }
   var tdShowDone = false, tdFilter = 'mine';
@@ -665,7 +667,7 @@
     var cls = half ? 'ha' : x.type === '有休' ? 'yu' : 'ko';
     var tag = (x.type === '有休' ? '有' : '公') + (half ? (x.half === '午前' ? '前' : '後') : '');
     // 枠がせまいスマホでも種類が切れないよう、種類を名前の前に出す
-    return '<span class="lvc ' + cls + '">' + (long ? esc(x.name + '（' + x.type + (half ? '・' + x.half : '') + '）') : '<b>' + tag + '</b>' + esc(calShort(x.name))) + '</span>';
+    return '<span class="lvc ' + cls + '">' + (x.fixed ? '🔒' : '') + (long ? esc(x.name + '（' + x.type + (half ? '・' + x.half : '') + (x.fixed ? '・動かせない' : '') + '）') : '<b>' + tag + '</b>' + esc(calShort(x.name))) + '</span>';
   }
   var LV_LEGEND = '<div class="lvlegend"><span class="lvc ko"><b>公</b>＝公休</span><span class="lvc yu"><b>有</b>＝有休</span><span class="lvc ha"><b>前・後</b>＝半休（午前・午後）</span></div>';
   function calGridHtml(d, opt) {
@@ -681,7 +683,7 @@
         '<span class="dtop"><span class="dn">' + day + '</span>' + (list.length ? '<span class="cnt">' + list.length + '件</span>' : '') + '</span>' +
         (lvs.length ? '<span class="lvn">' + lvs.map(function (x) { return lvChip(x, false); }).join('') + '</span>' : '') +
         (function () { var td = d.todos ? tdOfDay(d, day).filter(function (x) { return !x.done; }) : []; return td.length ? '<span class="tdb' + (td.some(function (x) { return x.late; }) ? ' late' : '') + '">✅' + (td.length > 1 ? td.length + ' ' : '') + esc(td.length === 1 ? td[0].title : 'やること') + '</span>' : ''; })() +
-        evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '🔒' : '') + (ev.notify ? '🔔' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
+        evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '👤' : '') + (ev.fixed ? '🔒' : '') + (ev.notify ? '🔔' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
         list.slice(0, Math.max(room, 1)).map(function (o) { return '<span class="rc' + (o.pct >= 100 ? ' done' : '') + '" style="border-left-color:' + calColor(o) + '">' + esc((o.time ? o.time + ' ' : '') + calShort(o.name)) + '</span>'; }).join('') +
         (list.length > Math.max(room, 1) ? '<span class="more">＋' + (list.length - Math.max(room, 1)) + '件</span>' : '') + '</button>';
     }
@@ -693,7 +695,7 @@
     var h = '';
     if (lvs.length) h += '<div class="meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') + '</div>';
     if (d.todos) h += tdOfDay(d, day).map(function (x) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(x.time || '') + '</span><span class="sb" style="background:' + (x.late ? '#B42318' : '#E08A00') + (x.done ? ';opacity:.4' : '') + '"></span><span' + (x.done ? ' style="text-decoration:line-through;color:#98A2B3"' : '') + '>✅ ' + esc(x.title) + '<small class="meta">　担当：' + esc(x.whoNames) + '</small></span></div>'; }).join('');
-    h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '🔒 ' : '') + esc(ev.title) + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + '</span></div>'; }).join('');
+    h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '👤 ' : '') + (ev.fixed ? '🔒 ' : '') + esc(ev.title) + (ev.end ? '<small class="meta">〜' + esc(ev.end) + '</small>' : '') + (ev.who ? '<small class="meta">　' + esc(ev.who) + '</small>' : '') + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + '</span></div>'; }).join('');
     h += list.map(function (o) {
       return '<div class="clrow" data-key="' + esc(o.key) + '"><span class="t">' + esc(o.time || '―') + '</span><span class="sb" style="background:' + calColor(o) + (o.pct >= 100 ? ';opacity:.4' : '') + '"></span><span><b>' + esc(o.no) + '</b> ' + esc(o.name) + '<small class="meta">　' + esc([o.model, o.store, o.kubun].filter(Boolean).join('・')) + (o.pct >= 100 ? '・完了' : '') + '</small></span></div>';
     }).join('');
@@ -706,7 +708,7 @@
     var on = !!ev.notify;
     return '<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><label class="meta" style="display:flex;gap:8px;align-items:center;flex:1.3;margin:0"><input type="checkbox" id="' + pre + 'Notify" style="width:22px;height:22px"' + (on ? ' checked' : '') + '> 🔔 10分前に通知する</label>' +
       '<select class="f" id="' + pre + 'NotifyTo" style="flex:1;min-width:0;margin:0"><option value="みんな"' + (ev.notifyTo !== '自分だけ' ? ' selected' : '') + '>みんなに</option><option value="自分だけ"' + (ev.notifyTo === '自分だけ' ? ' selected' : '') + '>自分だけに</option></select></div>' +
-      '<div class="meta" style="margin:0 0 6px">時刻のない予定は当日の朝8時に通知。🔒自分だけの予定は、自分だけに通知</div>';
+      '<div class="meta" style="margin:0 0 6px">時刻のない予定は当日の朝8時に通知。👤自分だけの予定は、自分だけに通知</div>';
   }
   var calView = 'grid';
   try { calView = localStorage.getItem('hv_calview') || 'grid'; } catch (e) { /* なくても動く */ }
@@ -728,12 +730,12 @@
       }
       if (!any) html += '<div class="empty">この月の予定はありません</div>';
       html += LV_LEGEND;
-      html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>🔒 自分だけの予定</span><span><i style="background:#6B4FA0"></i>修理以外の予定</span><span>🔒 自分だけの予定</span></div>';
+      html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span>👤 自分だけの予定</span><span>🔒 ずらせない用事</span><span><i style="background:#6B4FA0"></i>修理以外の予定</span><span>👤 自分だけの予定</span><span>🔒 ずらせない用事</span></div>';
       $('main').innerHTML = html;
       return;
     }
     html += calGridHtml(d, { sel: calSel }) + LV_LEGEND;
-    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>🔒＝自分だけの予定　薄い色＝完了</span></div>';
+    html += '<div class="legend"><span><i style="background:#1B2A3A"></i>苅田</span><span><i style="background:#2563A8"></i>インター</span><span><i style="background:#F28C28"></i>出張</span><span><i style="background:#2E7D4F"></i>営業</span><span><i style="background:#B42318"></i>再修理</span><span><i style="background:#EDE7F6;border:1px solid #6B4FA0"></i>修理以外の予定</span><span>👤＝自分だけの予定　🔒＝ずらせない用事　薄い色＝完了</span></div>';
     html += '<div class="note">この月 ' + d.count + ' 件</div>';
     if (calSel) {
       var sel = d.days[calSel] || [];
@@ -751,20 +753,31 @@
       }
       // 修理以外の予定
       var evs = (d.events || {})[calSel] || [];
+      var evStaff = (d.todos && d.todos.staff) || [];
+      var evMore = function (pre, ev) { // 11/22d：担当・終わりの時刻・ずらせない
+        var w = String((ev && ev.who) || '').split('・').filter(Boolean);
+        return '<div class="lbl2">だれの用事か（何人でも・受けられるかの判定に使います）</div><div class="tdwho" id="' + pre + 'Who">' +
+          evStaff.map(function (x) { return '<button type="button" data-evwho="' + esc(x.name) + '"' + (w.indexOf(x.name) >= 0 ? ' class="on"' : '') + '>' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+          '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="' + pre + 'Fixed" style="width:22px;height:22px"' + (ev && ev.fixed ? ' checked' : '') + '> 🔒 ずらせない用事（受けられるかの判定で「予定をずらす」提案をしない）</label>';
+      };
+      var evSpan = function (ev) { return ev.time ? ev.time + (ev.end ? '〜' + ev.end : '') : '時間なし'; };
       html += evs.map(function (ev) {
         if (evEdit === ev.id) {
           var opt = function (v) { return '<option' + (ev.store === v ? ' selected' : '') + '>' + v + '</option>'; };
           return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">予定を直す</span></div>' +
             '<input class="f" id="eeTitle" value="' + esc(ev.title) + '" placeholder="内容">' +
             '<div style="display:flex;gap:6px"><input class="f" type="date" id="eeDate" value="' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '" style="flex:1.3;min-width:0">' +
-            '<input class="f" type="time" id="eeTime" value="' + esc(ev.time ? ('0' + ev.time).slice(-5) : '') + '" style="flex:1;min-width:0"></div>' +
+            '<input class="f" type="time" id="eeTime" value="' + esc(ev.time ? ('0' + ev.time).slice(-5) : '') + '" style="flex:1;min-width:0" aria-label="始まり"><span style="align-self:center">〜</span>' +
+            '<input class="f" type="time" id="eeEnd" value="' + esc(ev.end ? ('0' + ev.end).slice(-5) : '') + '" style="flex:1;min-width:0" aria-label="終わり"></div>' +
             '<select class="f" id="eeStore"><option value="">店舗（なくても可）</option>' + ['苅田', 'インター', '出張', '営業'].map(opt).join('') + '</select>' +
             '<input class="f" id="eeMemo" value="' + esc(ev.memo) + '" placeholder="メモ（なくても可）">' +
-            (ev.mine ? '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="eePriv" style="width:22px;height:22px"' + (ev.private ? ' checked' : '') + '> 🔒 自分だけの予定にする</label>' : '') +
+            evMore('ee', ev) +
+            (ev.mine ? '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="eePriv" style="width:22px;height:22px"' + (ev.private ? ' checked' : '') + '> 👤 自分だけの予定にする</label>' : '') +
             evNotifyHtml('ee', ev) +
             '<button class="btn" data-eesave="' + esc(ev.id) + '">直す</button><button class="btn sub" data-eeclose="1">やめる</button></div>';
         }
-        return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">' + (ev.private ? '🔒 ' : '') + esc(ev.title) + '</span><span class="date">' + esc(ev.time || '時間なし') + '</span></div>' +
+        return '<div class="card evc' + (ev.private ? ' pv' : '') + '"><div class="row1"><span class="no">' + (ev.private ? '👤 ' : '') + esc(ev.title) + '</span><span class="date">' + esc(evSpan(ev)) + '</span></div>' +
+          (ev.who || ev.fixed ? '<div class="meta">' + (ev.who ? '担当：<b>' + esc(ev.who) + '</b>' : '') + (ev.fixed ? '　<b>🔒 ずらせない用事</b>' : '') + (ev.who && !ev.end ? '<br><span style="font-size:11px">※ 終わりの時刻がないので、受けられるかの判定には使われません</span>' : '') + '</div>' : '') +
           '<div class="meta">' + esc([ev.store, ev.memo, ev.private ? '自分だけの予定（ほかの人には見えません）' : '入れた人：' + ev.by].filter(Boolean).join('　')) + '</div>' +
           (ev.notify ? '<div class="meta">🔔 ' + esc((EV_NOTIFY.filter(function (o) { return o[0] === ev.notify; })[0] || [0, ev.notify])[1] + '・' + (ev.notifyTo === '自分だけ' ? '自分だけ' : 'みんな') + 'に通知' + (ev.notified ? '（' + (/送らず/.test(ev.notified) ? ev.notified : ev.notified + ' に通知ずみ') + '）' : '')) + '</div>' : '') +
           (ev.changed ? '<div class="meta" style="font-size:11px">' + esc(ev.changed) + '</div>' : '') +
@@ -773,9 +786,11 @@
       if (evOpen) {
         html += '<div class="card evc"><div class="row1"><span class="no">' + d.m + '/' + calSel + ' に予定を入れる</span></div>' +
           '<input class="f" id="evTitle" placeholder="内容（例：〇〇自動車 来店・打ち合わせ・部品の納品）">' +
-          '<div style="display:flex;gap:6px"><input class="f" type="time" id="evTime" style="flex:1;min-width:0"><select class="f" id="evStore" style="flex:1;min-width:0"><option value="">店舗（なくても可）</option><option>苅田</option><option>インター</option><option>出張</option><option>営業</option></select></div>' +
+          '<div style="display:flex;gap:6px"><input class="f" type="time" id="evTime" style="flex:1;min-width:0" aria-label="始まり"><span style="align-self:center">〜</span><input class="f" type="time" id="evEnd" style="flex:1;min-width:0" aria-label="終わり"></div>' +
+          '<select class="f" id="evStore"><option value="">場所（なくても可）</option><option>苅田</option><option>インター</option><option>出張</option><option>営業</option></select>' +
           '<input class="f" id="evMemo" placeholder="メモ（なくても可）">' +
-          '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="evPriv" style="width:22px;height:22px"> 🔒 自分だけの予定にする（ほかの人のカレンダーには出ません）</label>' +
+          evMore('ev') +
+          '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="evPriv" style="width:22px;height:22px"> 👤 自分だけの予定にする（ほかの人のカレンダーには出ません）</label>' +
           evNotifyHtml('ev') +
           '<button class="btn" data-evsave="1">予定を入れる</button><button class="btn sub" data-evclose="1">やめる</button></div>';
       } else html += '<button class="btn sub" data-evopen="1">＋ 修理以外の予定を入れる</button>';
@@ -856,10 +871,11 @@
       var hd = document.querySelector('.h2'); if (hd && t.closest('.cal')) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
+    if ((t = e.target.closest('[data-evwho]'))) { t.classList.toggle('on'); return; } // 入力中の文字を消さないよう、画面は描き直さない
     if ((t = e.target.closest('[data-evedit]'))) { evEdit = t.getAttribute('data-evedit'); evOpen = false; renderCal(); var tt = $('eeTitle'); if (tt) tt.focus(); return; }
     if (e.target.closest('[data-eeclose]')) { evEdit = ''; renderCal(); return; }
     if ((t = e.target.closest('[data-eesave]'))) {
-      var pe = { id: t.getAttribute('data-eesave'), title: $('eeTitle').value, date: $('eeDate').value, time: $('eeTime').value, store: $('eeStore').value, memo: $('eeMemo').value, private: !!($('eePriv') && $('eePriv').checked), notify: $('eeNotify') && $('eeNotify').checked ? '10分前' : '', notifyTo: ($('eeNotifyTo') || {}).value || 'みんな' };
+      var pe = { id: t.getAttribute('data-eesave'), title: $('eeTitle').value, date: $('eeDate').value, time: $('eeTime').value, store: $('eeStore').value, memo: $('eeMemo').value, private: !!($('eePriv') && $('eePriv').checked), end: $('eeEnd').value, who: evWhoGet('ee'), fixed: !!$('eeFixed').checked, notify: $('eeNotify') && $('eeNotify').checked ? '10分前' : '', notifyTo: ($('eeNotifyTo') || {}).value || 'みんな' };
       if (!pe.title.trim()) { toast('内容を入れてください'); return; }
       loading(true);
       call('eventEdit', pe).then(function (r) {
@@ -873,7 +889,7 @@
     if (e.target.closest('[data-evopen]')) { evOpen = true; evEdit = ''; renderCal(); var et = $('evTitle'); if (et) et.focus(); return; }
     if (e.target.closest('[data-evclose]')) { evOpen = false; renderCal(); return; }
     if (e.target.closest('[data-evsave]')) {
-      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked), notify: $('evNotify') && $('evNotify').checked ? '10分前' : '', notifyTo: ($('evNotifyTo') || {}).value || 'みんな' };
+      var ev = { date: calData.y + '-' + calData.m + '-' + calSel, title: $('evTitle').value, time: $('evTime').value, store: $('evStore').value, memo: $('evMemo').value, private: !!($('evPriv') && $('evPriv').checked), end: $('evEnd').value, who: evWhoGet('ev'), fixed: !!$('evFixed').checked, notify: $('evNotify') && $('evNotify').checked ? '10分前' : '', notifyTo: ($('evNotifyTo') || {}).value || 'みんな' };
       if (!ev.title.trim()) { toast('内容を入れてください'); return; }
       loading(true);
       call('eventAdd', ev).then(function (r) { calData.events = r.events; evOpen = false; renderCal(); okToast('予定を入れました'); })
@@ -905,6 +921,7 @@
     var d = listCache;
     if (!d) return;
     var html = '<a class="btn newbtn" href="#/new">＋ 新しい受注を登録</a>' +
+      '<a class="btn sub" href="#/can" style="display:block;text-align:center;margin-top:-4px">📅 この日時で受けられるか調べる</a>' +
       '<a class="findbar" href="#/find">🔍 過去の修理をさがす<small>名前・電話番号・車のナンバー・修理＃</small></a>';
     html += '<div class="tabs">' + TABS.map(function (t) {
       return '<button class="tab' + (listTab === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '">' + t[1] + '<span class="n">' + (d[t[0]] || []).length + '</span></button>';
@@ -993,12 +1010,15 @@
       (function () { var L = lvSelList(); return '<div class="meta" style="margin:6px 0">' + (L.length ? '選んだ日：<b>' + L.length + '日</b>　' + L.map(function (k) { var a = k.split('-'); return Number(a[1]) + '/' + Number(a[2]); }).join('・') + '　<a href="#" data-lvclear="1">選び直す</a>' : 'まだ日を選んでいません') + '</div>'; })() +
       '<div class="seg">' + ['公休', '有休'].map(function (x) { return '<button data-lvtype="' + x + '"' + (lvForm.type === x ? ' class="on"' : '') + '>' + x + '</button>'; }).join('') + '</div>' +
       '<div class="seg">' + ['全日', '午前', '午後'].map(function (x) { return '<button data-lvhalf="' + x + '"' + (lvForm.half === x ? ' class="on"' : '') + '>' + (x === '全日' ? '1日' : x + '（半休）') + '</button>'; }).join('') + '</div>' +
-      '<input class="f" id="lvMemo" placeholder="メモ（なくても可）" value="' + esc(lvForm.memo) + '"><button class="btn" data-lvadd="1">' + (lvSelList().length > 1 ? '選んだ ' + lvSelList().length + '日に ' + esc(lvForm.type) + (lvForm.half !== '全日' ? '（' + esc(lvForm.half) + '）' : '') + ' を入れる' : '休みを入れる') + '</button>';
+      '<input class="f" id="lvMemo" placeholder="メモ（なくても可）" value="' + esc(lvForm.memo) + '">' +
+      '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="lvFixed" style="width:22px;height:22px"' + (lvForm.fixed ? ' checked' : '') + '> 🔒 絶対動かせない休み（受けられるかの判定で「休みをずらす」提案をしない）</label>' +
+      '<button class="btn" data-lvadd="1">' + (lvSelList().length > 1 ? '選んだ ' + lvSelList().length + '日に ' + esc(lvForm.type) + (lvForm.half !== '全日' ? '（' + esc(lvForm.half) + '）' : '') + ' を入れる' : '休みを入れる') + '</button>';
     // 一覧
     html += '<div class="h2">' + d.m + '月の休み（' + esc(M.name) + 'さん）</div>';
     html += d.mine.length ? '<table class="t">' + d.mine.map(function (x) {
       var dt = new Date(x.date.replace(/-/g, '/'));
-      return '<tr><td>' + (dt.getMonth() + 1) + '/' + dt.getDate() + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')</td><td>' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + (x.memo ? '<div class="meta">' + esc(x.memo) + '</div>' : '') + '</td><td class="n">' + fmtDay(x.n) + '日</td><td style="width:64px;white-space:nowrap"><button type="button" class="mini" data-lvdel="' + esc(x.id) + '">取消</button></td></tr>';
+      return '<tr><td>' + (dt.getMonth() + 1) + '/' + dt.getDate() + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')' + (x.fixed ? '<div class="meta" style="color:#B42318;font-weight:700">🔒 動かせない</div>' : '') + '</td><td>' + esc(x.type) + (x.half !== '全日' ? '・' + esc(x.half) : '') + (x.memo ? '<div class="meta">' + esc(x.memo) + '</div>' : '') + '</td><td class="n">' + fmtDay(x.n) + '日</td>' +
+        '<td style="width:1%;white-space:nowrap"><button type="button" class="mini" data-lvfix="' + esc(x.id) + '" data-on="' + (x.fixed ? '0' : '1') + '">' + (x.fixed ? '🔒を外す' : '🔒にする') + '</button> <button type="button" class="mini" data-lvdel="' + esc(x.id) + '">取消</button></td></tr>';
     }).join('') + '</table>' : '<div class="empty">この月の休みはまだありません</div>';
     // 有休の内訳（付与ごと）
     if (LG && LG.lots && LG.lots.length) {
@@ -1030,7 +1050,7 @@
     }
     $('main').innerHTML = html;
   }
-  function lvRead() { if ($('lvMemo')) lvForm.memo = $('lvMemo').value; }
+  function lvRead() { if ($('lvMemo')) lvForm.memo = $('lvMemo').value; if ($('lvFixed')) lvForm.fixed = $('lvFixed').checked; }
   document.addEventListener('change', function (e) {
     if (location.hash.indexOf('#/leave') !== 0 || !e.target || e.target.id !== 'lvWho') return;
     lvRead(); lvWho = e.target.value; openLeave();
@@ -1054,10 +1074,16 @@
       var picks = lvSelList();
       if (!picks.length) { toast('カレンダーで休む日を押して選んでください'); return; }
       loading(true);
-      call('leaveAdd', { dates: picks, date: picks[0], type: lvForm.type, half: lvForm.half, memo: lvForm.memo, staffId: lvData.me.staffId, ym: lvYm || (lvData.y + '-' + (lvData.m < 10 ? '0' : '') + lvData.m) }).then(function (d) {
-        lvData = d; lvYm = d.y + '-' + (d.m < 10 ? '0' : '') + d.m; lvForm.memo = ''; lvSel = {}; meData = null; calData = null; renderLeave();
+      call('leaveAdd', { dates: picks, date: picks[0], type: lvForm.type, half: lvForm.half, memo: lvForm.memo, fixed: !!lvForm.fixed, staffId: lvData.me.staffId, ym: lvYm || (lvData.y + '-' + (lvData.m < 10 ? '0' : '') + lvData.m) }).then(function (d) {
+        lvData = d; lvYm = d.y + '-' + (d.m < 10 ? '0' : '') + d.m; lvForm.memo = ''; lvForm.fixed = false; lvSel = {}; meData = null; calData = null; renderLeave();
         if (d.warns && d.warns.length) toast((d.added ? d.added + '日 入れました。' : '') + d.warns.join('／')); else okToast((d.added > 1 ? d.added + '日 ' : '') + '休みを入れました');
       }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if ((t = e.target.closest('[data-lvfix]'))) { // 絶対動かせない休み（受注の判定で使う）
+      lvRead(); loading(true);
+      call('leaveFix', { id: t.getAttribute('data-lvfix'), fixed: t.getAttribute('data-on') === '1', ym: lvYm }).then(function (d) { lvData = d; meData = null; calData = null; renderLeave(); okToast(d.note); })
+        .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       return;
     }
     if ((t = e.target.closest('[data-lvdel]'))) {
@@ -1097,6 +1123,64 @@
   var stData = null, stTip = {};
   // ---- 粗利と品質（再修理のふり返り） ----
   var pfData = null;
+  // ---- 受けられるか（受注の判定。11/22〜）：在庫・検査・充放電レーン・スタッフの休みと場所から ----
+  var canF = null, canRes = null, canOpt = null;
+  function canDefault() {
+    var t = new Date(Date.now() + 86400000), p = function (n) { return ('0' + n).slice(-2); };
+    return { model: '', grade: 'スタンダード', store: '苅田', date: t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate()), time: '15:00', address: '' };
+  }
+  function openCan() {
+    setNav('#/list', '#/list');
+    $('title').textContent = '受けられるか調べる';
+    if (!canF) canF = canDefault();
+    renderCan();
+    if (!canOpt) call('canOptions').then(function (d) { canOpt = d; if (location.hash === '#/can') renderCan(); }).catch(function () { /* なくても入力できる */ });
+  }
+  function canRead() { ['model', 'date', 'time', 'address'].forEach(function (k) { var el = $('can_' + k); if (el) canF[k] = el.value; }); }
+  function renderCan() {
+    var f = canF, o = canOpt || { models: [], grades: ['半年保証', 'スタンダード', 'プレミア', '新品'], stores: ['苅田', 'インター', '出張'] };
+    var seg = function (k, list, lab) { return '<div class="seg" style="margin:4px 0 8px">' + list.map(function (v) { return '<button type="button" data-canset="' + k + '" data-v="' + esc(v) + '"' + (f[k] === v ? ' class="on"' : '') + '>' + esc(lab ? lab(v) : v) + '</button>'; }).join('') + '</div>'; };
+    var html = '<div class="card"><div class="lbl2">車種（型式）</div><input class="f" id="can_model" list="can_models" value="' + esc(f.model) + '" placeholder="例：ZVW30" autocomplete="off"><datalist id="can_models">' + (o.models || []).map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>' +
+      '<div class="lbl2">保証</div>' + seg('grade', o.grades) +
+      '<div class="lbl2">場所</div>' + seg('store', o.stores, function (v) { return v === '苅田' ? '苅田行橋店' : v === 'インター' ? '福岡インター店' : '出張'; }) +
+      (f.store === '出張' ? '<input class="f" id="can_address" value="' + esc(f.address) + '" placeholder="出張先の住所（移動時間に使う。なければ平均）">' : '') +
+      '<div class="lbl2">お客様の希望の日時</div><div style="display:flex;gap:6px"><input class="f" type="date" id="can_date" value="' + esc(f.date) + '" style="flex:1.3;min-width:0"><input class="f" type="time" id="can_time" value="' + esc(f.time) + '" step="1800" style="flex:1;min-width:0"></div>' +
+      '<button class="btn" data-cango="1">受けられるか調べる</button></div>';
+    var r = canRes;
+    if (r) {
+      var C = { '◎': ['#067647', '#ECFDF3', 'そのまま受けられます'], '○': ['#175CD3', '#EFF8FF', '条件つきで受けられます'], '△': ['#B54708', '#FFFAEB', '検査しだいで受けられるかもしれません'], '×': ['#B42318', '#FEF3F2', '受けられません'] }[r.level];
+      html += '<div class="card" style="border-left:6px solid ' + C[0] + ';background:' + C[1] + '"><div style="display:flex;gap:12px;align-items:center"><div style="font-size:44px;font-weight:800;color:' + C[0] + ';line-height:1">' + r.level + '</div>' +
+        '<div><div style="font-size:17px;font-weight:800;color:' + C[0] + '">' + C[2] + '</div><div class="meta">' + esc(r.label) + '　' + esc(r.store === '苅田' ? '苅田行橋店' : r.store === 'インター' ? '福岡インター店' : '出張') + (r.staff ? '　担当の案：<b>' + esc(r.staff) + 'さん</b>' : '') + '</div></div></div>';
+      if (r.conds.length) html += '<div class="lbl2" style="margin-top:10px">条件（お客様に答える前に、担当の人と確かめる）</div><ul style="margin:4px 0 0 18px;padding:0">' + r.conds.map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul>';
+      if (r.reasons.length) html += '<div class="lbl2" style="margin-top:10px">受けられない理由</div><ul style="margin:4px 0 0 18px;padding:0;color:#B42318">' + r.reasons.map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul>';
+      if (r.notes.length) html += '<div class="meta" style="margin-top:10px">' + r.notes.map(esc).join('<br>') + '</div>';
+      html += '</div>';
+      if (r.free) {
+        html += '<div class="h2">近い空き（同じ場所・10日のあいだ）</div>' + (r.free.length ? r.free.map(function (x) {
+          return '<div class="card tap" data-canfree="' + esc(x.date + '|' + x.time) + '"><div class="row1"><span class="no">' + esc(x.level + '　' + x.label) + '</span><span class="date">この日時で調べる ›</span></div>' +
+            '<div class="meta">' + (x.staff ? '担当の案：' + esc(x.staff) + 'さん' : '') + (x.conds.length ? '<br>' + x.conds.slice(0, 2).map(esc).join('<br>') : '') + '</div></div>';
+        }).join('') : '<div class="empty">10日のあいだに空きが見つかりませんでした</div>');
+      }
+      html += '<div class="note">' + esc(r.at) + ' 時点。判定のもと：修理1件 ' + r.settings.jobH + '時間・1人1日 ' + r.settings.dayH + '時間まで・営業 ' + r.settings.open + '〜' + r.settings.close + '時（インター・出張は' + r.settings.away + '時から）・充電は修理の' + r.settings.chgH + '時間前から（急ぐときも' + r.settings.chgMin + '時間）・充放電レーン ' + r.settings.lanes + '本・予備充放電 ' + r.settings.preH + '時間＋検査 ' + r.settings.inspH + '時間。数字は「設定」シートの「受注判定：…」で変えられます。' +
+        '修理以外の作業（予備充放電・検査・充電を始める）は ' + r.settings.workFrom + '〜' + r.settings.workTo + '時。休みは「🔒 絶対動かせない」にしたものはずらしません。' +
+        'カレンダーの予定は、担当と終わりの時刻を入れたものだけ数えます（🔒 ずらせない用事はずらしません）。' +
+        'スタッフの場所は、その日の修理担当になっている修理の場所から見ています（営業の外出などは入っていないので、ご自身で確かめてください）。</div>';
+    }
+    $('main').innerHTML = html;
+  }
+  document.addEventListener('click', function (e) {
+    if (location.hash !== '#/can' || !canF) return;
+    var t;
+    if ((t = e.target.closest('[data-canset]'))) { canRead(); canF[t.getAttribute('data-canset')] = t.getAttribute('data-v'); renderCan(); return; }
+    if ((t = e.target.closest('[data-canfree]'))) { var a = t.getAttribute('data-canfree').split('|'); canF.date = a[0]; canF.time = ('0' + a[1]).slice(-5); canGo(); return; }
+    if (e.target.closest('[data-cango]')) { canRead(); canGo(); }
+  });
+  function canGo() {
+    if (!String(canF.model || '').trim()) { toast('車種を入れてください'); return; }
+    loading(true);
+    call('canAccept', canF).then(function (r) { canRes = r; renderCan(); var c = document.querySelectorAll('.card')[1]; if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); })
+      .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+  }
   // ---- FLコスト（原価＋人件費。店長・管理者のマイページから。11/22〜） ----
   var flData = null;
   function openFl() {
@@ -4048,7 +4132,10 @@
     if (!ci.unit && !ci.bara) {
       html += '<div class="lbl2">検査したユニットを選ぶ（届いて、まだ結果を入れていないもの）</div>';
       html += d.units.length ? d.units.map(function (u) {
-        return '<div class="card tap" data-ciu="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.state) + '</span></div><div class="meta">' + esc(u.kind + '　' + u.model + '　' + (u.n ? u.n + '本' : '') + (u.src ? '　' + u.src.replace('/', ' ') : '')) + '</div></div>';
+        var preLeft = u.preT ? Math.max(0, Math.round(((u.preT + (d.preH || 24) * 3600000) - (d.nowT || Date.now())) / 3600000)) : null;
+        return '<div class="card tap" data-ciu="' + esc(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.state) + '</span></div><div class="meta">' + esc(u.kind + '　' + u.model + '　' + (u.n ? u.n + '本' : '') + (u.src ? '　' + u.src.replace('/', ' ') : '')) + '</div>' +
+          '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + (u.preT ? '<span class="chip ' + (preLeft ? 'state' : 'done') + '">⚡ 予備充放電 ' + esc(u.pre) + '〜' + (preLeft ? '（あと約' + preLeft + '時間）' : '（もう検査できます）') + '</span><button type="button" class="mini" data-cipre="' + esc(u.unitNo) + '" data-on="0">記録を消す</button>'
+            : '<button type="button" class="mini" data-cipre="' + esc(u.unitNo) + '" data-on="1">⚡ 予備充放電を始めた</button>') + '</div></div>';
       }).join('') : '<div class="empty">結果を入れていないユニットはありません</div>';
       html += '<button class="btn sub" data-cibara="1">ユニットなし（バラのモジュール）で入れる</button>';
       $('main').innerHTML = html; return;
@@ -4285,6 +4372,12 @@
   document.addEventListener('click', function (e) {
     var h = location.hash, t;
     if (h === '#/inv/cinsp') {
+      if ((t = e.target.closest('[data-cipre]'))) { // 予備充放電を始めた（受けられるかの判定で、いつ検査できるかに使う）
+        var pu = t.getAttribute('data-cipre'), on = t.getAttribute('data-on') === '1';
+        loading(true);
+        call('cntPre', { unitNo: pu, on: on }).then(function (d) { ci.data = d; renderCntInspect(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        return;
+      }
       if ((t = e.target.closest('[data-ciu]'))) {
         var no = t.getAttribute('data-ciu');
         ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
