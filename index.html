@@ -393,7 +393,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-22f';
+  var SCREEN_VERSION = '2026-11-22g';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5272,9 +5272,12 @@
       return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;' + (x.rank > 1 ? 'border-top:1px solid #D7EBDD' : '') + '">' +
         '<span style="flex:none;width:26px;height:26px;border-radius:50%;background:' + (top ? '#2E7D4F' : '#B7C3BC') + ';color:#fff;font-weight:800;text-align:center;line-height:26px">' + x.rank + '</span>' +
         '<span style="flex:1;min-width:0"><b style="font-size:' + (top ? '17px' : '15px') + '">' + esc(x.grade) + '</b>' + (top ? ' <span class="chip" style="background:#2E7D4F;color:#fff">いちばんおすすめ</span>' : '') +
-        '<br><small style="color:#475467">' + (nRank.yen ? '粗利 平均 ' + nRankYen(x.avg) + ' × ' + x.n + '件 ＝ ' + nRankYen(x.total) : x.n + '件') + (x.few ? '（まだ少ない）' : '') + '</small></span></div>';
+        (x.popular ? ' <span class="chip" style="background:#EFF8FF;color:#175CD3">いちばん選ばれている</span>' : '') +
+        '<br><small style="color:#475467">' + (nRank.yen ? '1件あたりの粗利 ' + nRankYen(x.avg) + '　' : '') + '選ばれた数 ' + x.n + '件' + (x.few ? '（まだ少ない）' : '') + '</small></span></div>';
     }).join('');
-    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。（実質粗利 − 再修理の費用）の平均 × 件数 の大きい順・税別' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
+    var best = list[0], pop = list.filter(function (x) { return x.popular; })[0];
+    if (best && pop && pop.grade !== best.grade) h += '<div style="margin-top:6px;padding:6px 8px;background:#fff;border-radius:8px;font-size:13px">💬 お客様に：「多くの方は<b>' + esc(pop.grade) + '</b>を選ばれていますが、おすすめは<b>' + esc(best.grade) + '</b>です」</div>';
+    h += '<div style="font-size:11px;color:#667085;margin-top:4px">直近' + (nRank.months || 12) + 'か月の実績。1件あたりの（実質粗利 − 再修理の費用）の高い順・税別。件数は参考（2件以下は「まだ少ない」として下に）' + (nRank.at ? '・' + esc(nRank.at) + ' 時点' : '') + '</div></div>';
     box.innerHTML = h;
     if (seg) list.forEach(function (x) {
       var b = Array.prototype.filter.call(seg.querySelectorAll('button'), function (el) { return el.getAttribute('data-v') === x.grade; })[0];
