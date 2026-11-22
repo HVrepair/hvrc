@@ -395,7 +395,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-22i';
+  var SCREEN_VERSION = '2026-11-22l';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1188,6 +1188,10 @@
     var f = canF, o = canOpt || { models: [], grades: ['半年保証', 'スタンダード', 'プレミア', '新品'], stores: ['苅田', 'インター', '出張'] };
     var seg = function (k, list, lab) { return '<div class="seg" style="margin:4px 0 8px">' + list.map(function (v) { return '<button type="button" data-canset="' + k + '" data-v="' + esc(v) + '"' + (f[k] === v ? ' class="on"' : '') + '>' + esc(lab ? lab(v) : v) + '</button>'; }).join('') + '</div>'; };
     var html = '<div class="card"><div class="lbl2">車種（型式）</div><input class="f" id="can_model" list="can_models" value="' + esc(f.model) + '" placeholder="例：ZVW30" autocomplete="off"><datalist id="can_models">' + (o.models || []).map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>' +
+      (function () {
+        var auto = (o.twoModels || []).indexOf(String(f.model || '').toUpperCase().replace(/\s+/g, '')) >= 0, on = f.two === '1' || (f.two !== '0' && auto);
+        return '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="can_two" style="width:22px;height:22px"' + (on ? ' checked' : '') + '> 👥 二人作業（2人で行く）' + (auto ? '<small>　この車種は二人作業</small>' : '') + '</label>';
+      })() +
       '<div class="lbl2">保証</div>' + seg('grade', o.grades) +
       '<div class="lbl2">場所</div>' + seg('store', o.stores, function (v) { return v === '苅田' ? '苅田行橋店' : v === 'インター' ? '福岡インター店' : '出張'; }) +
       (f.store === '出張' ? '<input class="f" id="can_address" value="' + esc(f.address) + '" placeholder="出張先の住所（移動時間に使う）">' +
@@ -1198,7 +1202,7 @@
     if (r) {
       var C = { '◎': ['#067647', '#ECFDF3', 'そのまま受けられます'], '○': ['#175CD3', '#EFF8FF', '条件つきで受けられます'], '△': ['#B54708', '#FFFAEB', '検査しだいで受けられるかもしれません'], '×': ['#B42318', '#FEF3F2', '受けられません'] }[r.level];
       html += '<div class="card" style="border-left:6px solid ' + C[0] + ';background:' + C[1] + '"><div style="display:flex;gap:12px;align-items:center"><div style="font-size:44px;font-weight:800;color:' + C[0] + ';line-height:1">' + r.level + '</div>' +
-        '<div><div style="font-size:17px;font-weight:800;color:' + C[0] + '">' + C[2] + '</div><div class="meta">' + esc(r.label) + '　' + esc(r.store === '苅田' ? '苅田行橋店' : r.store === 'インター' ? '福岡インター店' : '出張') + (r.staff ? '　担当の案：<b>' + esc(r.staff) + 'さん</b>' : '') + '</div></div></div>';
+        '<div><div style="font-size:17px;font-weight:800;color:' + C[0] + '">' + C[2] + '</div><div class="meta">' + (r.two ? '👥 二人作業　' : '') + esc(r.label) + '　' + esc(r.store === '苅田' ? '苅田行橋店' : r.store === 'インター' ? '福岡インター店' : '出張') + (r.staff ? '　担当の案：<b>' + esc(r.staff) + 'さん</b>' : '') + '</div></div></div>';
       if (r.conds.length) html += '<div class="lbl2" style="margin-top:10px">条件（お客様に答える前に、担当の人と確かめる）</div><ul style="margin:4px 0 0 18px;padding:0">' + r.conds.map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul>';
       if (r.reasons.length) html += '<div class="lbl2" style="margin-top:10px">受けられない理由</div><ul style="margin:4px 0 0 18px;padding:0;color:#B42318">' + r.reasons.map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul>';
       if (r.notes.length) html += '<div class="meta" style="margin-top:10px">' + r.notes.map(esc).join('<br>') + '</div>';
@@ -1212,10 +1216,18 @@
       html += '<div class="note">' + esc(r.at) + ' 時点。判定のもと：修理1件 ' + r.settings.jobH + '時間・1人1日 ' + r.settings.dayH + '時間まで・営業 ' + r.settings.open + '〜' + r.settings.close + '時（インター・出張は' + r.settings.away + '時から）・充電は修理の' + r.settings.chgH + '時間前から（急ぐときも' + r.settings.chgMin + '時間）・充放電レーン ' + r.settings.lanes + '本・予備充放電 ' + r.settings.preH + '時間＋検査 ' + r.settings.inspH + '時間。数字は「設定」シートの「受注判定：…」で変えられます。' +
         '修理以外の作業（予備充放電・検査・充電を始める）は ' + r.settings.workFrom + '〜' + r.settings.workTo + '時。休みは「🔒 絶対動かせない」にしたものはずらしません。' +
         'カレンダーの予定は、担当と終わりの時刻を入れたものだけ数えます（🔒 ずらせない用事はずらしません）。' +
+        '充電・予備充放電・検査を始めるのは、その時間にお店にいる「修理」「製造」の人です（定時 ' + (r.settings.regFrom || 9) + '〜' + (r.settings.regTo || 17) + '時。外は残業。🚫 残業できない日は定時だけ）。' +
         'スタッフの場所は、その日の修理担当になっている修理と、予定（担当・時刻・方面）から見て、前後の場所との移動（Googleマップ＋余裕' + (r.settings.pad || 15) + '分）が間に合うかを確かめています。「見込み」の移動時間は、まだGoogleマップで調べていない組み合わせです。</div>';
     }
     $('main').innerHTML = html;
   }
+  document.addEventListener('change', function (e) {
+    if (location.hash === '#/can' && canF && e.target && e.target.id === 'can_two') canF.two = e.target.checked ? '1' : '0';
+    if (location.hash === '#/can' && canF && e.target && e.target.id === 'can_model') { // 車種を変えたら、二人作業は車種どおりに（画面は描き直さない）
+      canF.two = ''; var cb = $('can_two');
+      if (cb) cb.checked = ((canOpt && canOpt.twoModels) || []).indexOf(String(e.target.value || '').toUpperCase().replace(/\s+/g, '')) >= 0;
+    }
+  });
   document.addEventListener('click', function (e) {
     if (location.hash !== '#/can' || !canF) return;
     var t;
@@ -4991,7 +5003,7 @@
     nf = { kind: '修理', store: '', kubun: '', kubunTouched: false, grade: '', payment: '', sex: '', autoAmount: null, look: null, lookTel: '', filled: false, parentKey: '', parent: null, showExpired: false, staff: [], vs: '' };
   }
   function openNew() {
-    nCalData = null; nCalBusy = ''; nAcc = { key: '', data: null, busy: '', one: {}, oneBusy: '' }; nAccArea = '';
+    nCalData = null; nCalBusy = ''; nAcc = { key: '', data: null, busy: '', one: {}, oneBusy: '' }; nAccArea = ''; nAccTwo = ''; nAccTwoModel = '';
     setNav('#/list', '#/list');
     $('title').textContent = '新しい受注の登録';
     nResult = null;
@@ -5119,7 +5131,7 @@
     nAccNeed();
   }
   // ---- 受けられるか（11/22e〜）：新しい受注のカレンダーに ◎○△× ----
-  var nAcc = { key: '', data: null, busy: '', one: {}, oneBusy: '' }, nAccArea = '', nAccT = null, nAccOneT = null;
+  var nAcc = { key: '', data: null, busy: '', one: {}, oneBusy: '' }, nAccArea = '', nAccT = null, nAccOneT = null, nAccTwo = '', nAccTwoModel = '';
   var NACC_RANK = { '◎': 0, '○': 1, '△': 2, '×': 3 };
   function nAccParams() {
     if (!nForm || !nCalData) return null;
@@ -5127,11 +5139,12 @@
     if (nf.kind === '再修理' || nf.kind === 'その他') return null;
     var store = nf.store || '';
     var js = /インター/.test(store) ? 'インター' : (store === '出張' || nf.kubun === '出張') ? '出張' : '苅田';
-    var p = { ym: nCalCur(), store: js, model: model, grade: grade, address: js === '出張' ? nVal('nAddr') : '', zip: js === '出張' ? nVal('nZip') : '', area: js === '出張' ? nAccArea : '' };
+    if (model !== nAccTwoModel) { nAccTwoModel = model; nAccTwo = ''; } // 車種を変えたら、二人作業は車種どおりに戻す
+    var p = { ym: nCalCur(), store: js, model: model, grade: grade, address: js === '出張' ? nVal('nAddr') : '', zip: js === '出張' ? nVal('nZip') : '', area: js === '出張' ? nAccArea : '', two: nAccTwo };
     p.ok = !!(store && model && grade);
     return p;
   }
-  function nAccKey(p) { return [p.ym, p.store, p.model, p.grade, p.address, p.zip, p.area].join('|'); }
+  function nAccKey(p) { return [p.ym, p.store, p.model, p.grade, p.address, p.zip, p.area, p.two].join('|'); }
   function nAccNeed() {
     var p = nAccParams();
     if (!p || !p.ok) return;
@@ -5169,6 +5182,8 @@
     if (p.store === '出張' && !p.address && nCalData.areas && nCalData.areas.length) h += '<select class="f" id="nAccArea" style="margin:0 0 6px"><option value="">出張先の方面（住所がまだなら。なければ出張の平均）</option>' + nCalData.areas.map(function (x) { return '<option value="' + esc(x) + '"' + (x === nAccArea ? ' selected' : '') + '>' + esc(x) + '方面</option>'; }).join('') + '</select>';
     if (nAcc.data && nAcc.data.err && nAcc.key === nAccKey(p)) return h + '<div class="meta" style="color:#B42318">受けられるかを出せませんでした：' + esc(nAcc.data.err) + '</div></div>';
     var a = nAccCur();
+    var twoOn = nAccTwo === '1' || (nAccTwo !== '0' && !!(a ? a.twoAuto : nAcc.data && nAcc.data.twoAuto));
+    h += '<label class="meta" style="display:flex;gap:8px;align-items:center;margin:0 0 6px"><input type="checkbox" id="nAccTwo" style="width:22px;height:22px"' + (twoOn ? ' checked' : '') + '> 👥 二人作業（2人で行く）' + (a && a.twoAuto ? '<small>　この車種は二人作業</small>' : '') + '</label>';
     if (!a) return h + '<span class="meta">受けられるかを計算しています…</span></div>';
     var t = nVal('nTime');
     h += '<div class="meta"><b class="acc0">◎</b> そのまま　<b class="acc1">○</b> 条件つき　<b class="acc2">△</b> 検査しだい　<b class="acc3" style="opacity:1">×</b> 受けられない　（' +
@@ -5194,7 +5209,7 @@
     if (!r) { nAccOneLoad(day); return '<div class="meta">' + esc(nVal('nTime')) + ' の条件をくわしく調べています…</div>'; }
     if (r.err) return '<div class="meta" style="color:#B42318">' + esc(r.err) + '</div>';
     var C = { '◎': ['#067647', '#ECFDF3', 'そのまま受けられます'], '○': ['#175CD3', '#EFF8FF', '条件つきで受けられます'], '△': ['#B54708', '#FFFAEB', '検査しだい'], '×': ['#B42318', '#FEF3F2', '受けられません'] }[r.level];
-    var h = '<div class="accbox" style="background:' + C[1] + ';border-left:5px solid ' + C[0] + '"><b style="color:' + C[0] + ';font-size:18px">' + r.level + '</b> <b style="color:' + C[0] + '">' + C[2] + '</b>' +
+    var h = '<div class="accbox" style="background:' + C[1] + ';border-left:5px solid ' + C[0] + '"><b style="color:' + C[0] + ';font-size:18px">' + r.level + '</b> <b style="color:' + C[0] + '">' + C[2] + '</b>' + (r.two ? ' <small>👥 二人作業</small>' : '') +
       '<span class="meta">　' + esc(r.label) + (r.staff ? '　担当の案：<b>' + esc(r.staff) + 'さん</b>' : '') + '</span>';
     if (r.conds.length) h += '<ul style="margin:4px 0 0 18px;padding:0">' + r.conds.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
     if (r.reasons.length) h += '<ul style="margin:4px 0 0 18px;padding:0;color:#B42318">' + r.reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
@@ -5209,7 +5224,7 @@
     nAccOneT = setTimeout(function () {
       var p = nAccParams(); if (!p || !p.ok || nAccOneKey(day) !== k) return;
       nAcc.oneBusy = k;
-      var q = { date: p.ym + '-' + (day < 10 ? '0' : '') + day, time: nVal('nTime'), store: p.store, model: p.model, grade: p.grade, address: p.address, zip: p.zip, area: p.area, noFree: true };
+      var q = { date: p.ym + '-' + (day < 10 ? '0' : '') + day, time: nVal('nTime'), store: p.store, model: p.model, grade: p.grade, address: p.address, zip: p.zip, area: p.area, two: p.two, noFree: true };
       call('canAccept', q).then(function (r) { nAcc.one[k] = r; }).catch(function (e) { nAcc.one[k] = { err: e.message }; })
         .then(function () { if (nAcc.oneBusy === k) nAcc.oneBusy = ''; var b = $('nAccOne'); if (b && nAccOneKey(day) === k) b.innerHTML = nAccOneHtml(day); });
     }, 600);
@@ -5234,6 +5249,7 @@
   document.addEventListener('change', function (e) {
     if (location.hash !== '#/new' || !e.target) return;
     if (e.target.id === 'nAccArea') { nAccArea = e.target.value; nCalRender(); return; }
+    if (e.target.id === 'nAccTwo') { nAccTwo = e.target.checked ? '1' : '0'; nCalRender(); return; }
     if (['nModel', 'nModelSel', 'nAddr', 'nZip'].indexOf(e.target.id) >= 0) setTimeout(nCalRender, 0);
   });
   function nVal(id) { var el = $(id); return el ? String(el.value).trim() : ''; }
