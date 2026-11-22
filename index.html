@@ -265,6 +265,8 @@
   .dc .rc.done { opacity: .45; }
   .dc .lvn { display: flex; flex-wrap: wrap; gap: 1px; max-width: 100%; }
   .lvc { display: inline-block; font-size: 9.5px; line-height: 13px; border-radius: 3px; padding: 0 2px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .lvc.noot { background: #FEE4E2; color: #B42318; }
+  .mytag { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 10px; padding: 1px 8px; margin-left: 4px; background: var(--navy); color: #fff; vertical-align: middle; }
   .lvc.ko { background: #DCE6FF; color: #2D3B8C; } .lvc.yu { background: #CFF5DD; color: #075E35; } .lvc.ha { background: #FFE2B8; color: #8A3B00; border: 1px dashed #E8892B; }
   @media (min-width: 700px) { .lvc { font-size: 12px; line-height: 17px; } }
   .sttab tr[data-stym] { cursor: pointer; } .sttab tr[data-stym]:active, .sttab tr.on { background: #EFF8FF; }
@@ -393,7 +395,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-22g';
+  var SCREEN_VERSION = '2026-11-22i';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -679,7 +681,7 @@
     // 枠がせまいスマホでも種類が切れないよう、種類を名前の前に出す
     return '<span class="lvc ' + cls + '">' + (x.fixed ? '🔒' : '') + (long ? esc(x.name + '（' + x.type + (half ? '・' + x.half : '') + (x.fixed ? '・動かせない' : '') + '）') : '<b>' + tag + '</b>' + esc(calShort(x.name))) + '</span>';
   }
-  var LV_LEGEND = '<div class="lvlegend"><span class="lvc ko"><b>公</b>＝公休</span><span class="lvc yu"><b>有</b>＝有休</span><span class="lvc ha"><b>前・後</b>＝半休（午前・午後）</span></div>';
+  var LV_LEGEND = '<div class="lvlegend"><span class="lvc ko"><b>公</b>＝公休</span><span class="lvc yu"><b>有</b>＝有休</span><span class="lvc ha"><b>前・後</b>＝半休（午前・午後）</span><span class="lvc noot">🚫＝残業できない日</span></div>';
   function calGridHtml(d, opt) {
     opt = opt || {};
     var attr = opt.attr || 'data-cald', max = opt.max || (window.innerWidth >= 700 ? 6 : 4);
@@ -691,7 +693,7 @@
       var room = max - Math.min(evs.length, 2);
       html += '<button type="button" class="dc' + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : '') + (day === d.today ? ' today' : '') + (day === opt.sel ? ' sel' : '') + '" ' + attr + '="' + day + '">' +
         '<span class="dtop"><span class="dn">' + day + '</span>' + (opt.mark ? opt.mark(day) : '') + (list.length ? '<span class="cnt">' + list.length + '件</span>' : '') + '</span>' +
-        (lvs.length ? '<span class="lvn">' + lvs.map(function (x) { return lvChip(x, false); }).join('') + '</span>' : '') +
+        (lvs.length || (d.noOt || {})[day] ? '<span class="lvn">' + lvs.map(function (x) { return lvChip(x, false); }).join('') + ((d.noOt || {})[day] || []).map(function (x) { return '<span class="lvc noot">🚫' + esc(calShort(x.name)) + '</span>'; }).join('') + '</span>' : '') +
         (function () { var td = d.todos ? tdOfDay(d, day).filter(function (x) { return !x.done; }) : []; return td.length ? '<span class="tdb' + (td.some(function (x) { return x.late; }) ? ' late' : '') + '">✅' + (td.length > 1 ? td.length + ' ' : '') + esc(td.length === 1 ? td[0].title : 'やること') + '</span>' : ''; })() +
         evs.slice(0, 2).map(function (ev) { return '<span class="evb' + (ev.private ? ' pv' : '') + '">' + (ev.private ? '👤' : '') + (ev.fixed ? '🔒' : '') + (ev.notify ? '🔔' : '') + esc((ev.time ? ev.time + ' ' : '') + ev.title) + '</span>'; }).join('') +
         list.slice(0, Math.max(room, 1)).map(function (o) { return '<span class="rc' + (o.pct >= 100 ? ' done' : '') + '" style="border-left-color:' + calColor(o) + '">' + esc((o.time ? o.time + ' ' : '') + calShort(o.name)) + '</span>'; }).join('') +
@@ -704,6 +706,7 @@
     var list = d.days[day] || [], evs = (d.events || {})[day] || [], lvs = (d.leaves || {})[day] || [];
     var h = '';
     if (lvs.length) h += '<div class="meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') + '</div>';
+    if ((d.noOt || {})[day]) h += '<div class="meta">🚫 残業できない：' + d.noOt[day].map(function (x) { return esc(x.name); }).join('・') + '</div>';
     if (d.todos) h += tdOfDay(d, day).map(function (x) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(x.time || '') + '</span><span class="sb" style="background:' + (x.late ? '#B42318' : '#E08A00') + (x.done ? ';opacity:.4' : '') + '"></span><span' + (x.done ? ' style="text-decoration:line-through;color:#98A2B3"' : '') + '>✅ ' + esc(x.title) + '<small class="meta">　担当：' + esc(x.whoNames) + '</small></span></div>'; }).join('');
     h += evs.map(function (ev) { return '<div class="clrow" style="cursor:default"><span class="t">' + esc(ev.time || '') + '</span><span class="sb" style="background:' + (ev.private ? '#667085' : '#6B4FA0') + '"></span><span>' + (ev.private ? '👤 ' : '') + (ev.fixed ? '🔒 ' : '') + esc(ev.title) + (ev.end ? '<small class="meta">〜' + esc(ev.end) + '</small>' : '') + (ev.who ? '<small class="meta">　' + esc(ev.who) + '</small>' : '') + (ev.store ? '<small class="meta">　' + esc(ev.store) + '</small>' : '') + (ev.area ? '<small class="meta">　' + esc(ev.area) + '方面</small>' : '') + '</span></div>'; }).join('');
     h += list.map(function (o) {
@@ -753,7 +756,13 @@
       html += '<div class="h2">' + d.m + '/' + calSel + '(' + '日月火水木金土'.charAt(dt.getDay()) + ')　' + sel.length + '件</div>';
       var lvs = (d.leaves || {})[calSel] || [];
       html += '<div class="note" style="margin:-4px 0 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">' + (lvs.length ? '休み：' + lvs.map(function (x) { return lvChip(x, true); }).join('') : '休みの人はいません') +
-        '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>';
+        '　<a href="#/leave/' + d.y + '-' + (d.m < 10 ? '0' : '') + d.m + '-' + (calSel < 10 ? '0' : '') + calSel + '">休みを入れる</a></div>' +
+        (function () {
+          var no = (d.noOt || {})[calSel] || [], mine = me && no.some(function (x) { return String(x.id) === String(me.staffId); });
+          return '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-2px 0 8px">' +
+            '<button type="button" class="mini" data-noot="1" style="' + (mine ? 'background:#FEE4E2;color:#B42318;border-color:#F04438' : '') + '">' + (mine ? '🚫 残業できない日（押すと外す）' : '🚫 この日は残業できない') + '</button>' +
+            (no.length ? '<span class="meta">残業できない：' + no.map(function (x) { return esc(x.name); }).join('・') + '</span>' : '') + '</div>';
+        })();
       // やること（その日が期限）
       if (d.todos) {
         var tds = tdOfDay(d, calSel);
@@ -904,6 +913,12 @@
       return;
     }
     if ((t = e.target.closest('[data-evwho]'))) { t.classList.toggle('on'); return; } // 入力中の文字を消さないよう、画面は描き直さない
+    if (e.target.closest('[data-noot]')) {
+      var nd = calData.y + '-' + (calData.m < 10 ? '0' : '') + calData.m + '-' + (calSel < 10 ? '0' : '') + calSel;
+      loading(true);
+      call('leaveNoOt', { date: nd }).then(function (r) { calData.noOt = r.noOt; renderCal(); okToast(r.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
     if ((t = e.target.closest('[data-evedit]'))) { evEdit = t.getAttribute('data-evedit'); evOpen = false; renderCal(); var tt = $('eeTitle'); if (tt) tt.focus(); return; }
     if (e.target.closest('[data-eeclose]')) { evEdit = ''; renderCal(); return; }
     if ((t = e.target.closest('[data-eesave]'))) {
@@ -3388,7 +3403,7 @@
   function renderMe() {
     var d = meData;
     var p = d.periods[meTab];
-    var html = '<div class="head"><div class="big">' + esc(d.name) + 'さん</div><div class="meta">' + esc(d.role) + '</div></div>';
+    var html = '<div class="head"><div class="big">' + esc(d.name) + 'さん' + (d.tags || []).map(function (t) { return '<span class="mytag">' + esc(t) + '</span>'; }).join('') + '</div><div class="meta">' + esc(d.role) + '</div></div>';
     if (d.leave) {
       var L = d.leave;
       html += '<a class="card tap" href="#/leave" style="display:block;text-decoration:none;color:inherit"><div class="row1"><span class="no">' + L.m + '月の休み</span><span class="date">休みを入れる・見る ›</span></div>' +
@@ -5013,12 +5028,8 @@
       (d.reChoices || []).map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>';
     html += '<label class="f" for="nName">お名前・会社名 <span class="req">必須</span></label><input class="f" id="nName" autocomplete="off">';
     html += nSeg('sex', d.sex, nf.sex);
-    html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div><div id="nCal"></div>';
-    html += '<label class="f" for="nTime">開始時刻（わかれば）</label><input class="f" id="nTime" type="time" step="900">';
     html += '<div class="lbl2">店舗 <span class="req">必須</span></div>' + nSeg('store', d.stores, nf.store);
     html += '<div class="lbl2">修理区分</div>' + nSeg('kubun', d.kubun, nf.kubun);
-    if (d.staff && d.staff.length) html += '<div class="lbl2">修理担当（何人でも。もう一度押すと外れます）</div><div class="seg wrap" id="nStaff">' +
-      d.staff.map(function (n) { return '<button type="button" data-nstaff="' + esc(n) + '"' + (nf.staff.indexOf(n) >= 0 ? ' class="on"' : '') + '>' + esc(n) + '</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">車種型式（よく出る車種）</div>';
     if (d.modelsTop && d.modelsTop.length) html += '<div class="seg wrap" id="nModelBtns">' + d.modelsTop.map(function (x) {
       var nm = nCarName(x.model);
@@ -5030,6 +5041,10 @@
     }).join('') + '</select>';
     html += '<input class="f" id="nModel" list="nModels" autocomplete="off" autocapitalize="characters" placeholder="一覧にない車種は、ここに入力（例：ZVW30）"><datalist id="nModels">' + d.models.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist>';
     html += '<div id="nRank"></div><div class="lbl2">グレード</div>' + nSeg('grade', d.grades, nf.grade) + '<div id="nStock"></div>';
+    html += '<label class="f" for="nDate">修理日 <span class="req">必須</span></label><div class="nrow"><input class="f" id="nDate" type="date" value="' + esc(d.today) + '"><label class="chk"><input type="checkbox" id="nHold"> 未定</label></div><div id="nCal"></div>';
+    html += '<label class="f" for="nTime">開始時刻（わかれば）</label><input class="f" id="nTime" type="time" step="900">';
+    if (d.staff && d.staff.length) html += '<div class="lbl2">修理担当（何人でも。もう一度押すと外れます）</div><div class="seg wrap" id="nStaff">' +
+      d.staff.map(function (n) { return '<button type="button" data-nstaff="' + esc(n) + '"' + (nf.staff.indexOf(n) >= 0 ? ' class="on"' : '') + '>' + esc(n) + '</button>'; }).join('') + '</div>';
     html += '<div data-only="single"><div class="lbl2">ボルテージセンサー <span class="req">必須</span>（組み立てで使います）</div>' + nSeg('vs', ['あり', 'なし'], nf.vs) +
       '<div class="note">受注シートのAF列（単体販売の備考欄）に「ボルテージセンサー：あり／なし」と書きます。「なし」は、チェックリストの配線（C16）・冷却ファン（C17）の項目を出しません</div></div>';
     html += '<div data-not="re"><label class="f" for="nAmount">金額（税込・円）</label><input class="f" id="nAmount" type="number" inputmode="numeric"><div class="note" id="nPrice"></div>';
