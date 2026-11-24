@@ -398,7 +398,7 @@
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-24a';
+  var SCREEN_VERSION = '2026-11-24b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1247,6 +1247,26 @@
   }
   // ---- 勤怠（11/24〜）：出勤・退勤・勤怠の月・打刻を直す・出勤簿PDF ----
   var ktData = null, ktSel = 0, ktStaff = '', ktBusy = false;
+  // 休みをまとめて入れる（11/24b〜）：null ＝ ふつう（日を押すと打刻を直す）／{ sel:{日:true}, type, half, fixed, memo } ＝ 日を選ぶ
+  var ktLv = null;
+  function ktLvLabel(v) { return v.type + (v.half === '午前' ? '(前)' : v.half === '午後' ? '(後)' : '') + (v.fixed ? '🔒' : ''); }
+  function ktYm() { return ktData.y + '-' + (ktData.m < 10 ? '0' : '') + ktData.m; }
+  function ktLvPanel() {
+    var d = ktData, L = ktLv, days = Object.keys(L.sel).map(Number).sort(function (a, b) { return a - b; });
+    var ids = []; days.forEach(function (n) { (d.days[n - 1].lv || []).forEach(function (v) { if (v.id) ids.push(v.id); }); });
+    var seg = function (key, list) { return '<div class="seg" style="margin:6px 0">' + list.map(function (x) { return '<button type="button" data-ktlvset="' + key + '" data-v="' + x[0] + '"' + (L[key] === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>'; };
+    return '<div class="card" style="border-left:5px solid #1570EF">' +
+      '<div class="row1"><span class="no">📅 休みをまとめて入れる</span><a class="date" href="javascript:void 0" data-ktlv="off">やめる</a></div>' +
+      '<div class="meta">下の表で休む日を押して選ぶ（もう一度押すと外れる）。' + (d.boss && d.staffId ? '<b>' + esc(d.name) + 'さん</b>の休みになります' : '') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0"><button type="button" style="border:1px solid #D0D5DD;background:#fff;border-radius:8px;padding:6px 10px;font-size:13px" data-ktlvpick="we">土日を全部選ぶ</button><button type="button" style="border:1px solid #D0D5DD;background:#fff;border-radius:8px;padding:6px 10px;font-size:13px" data-ktlvpick="none">選んだ日を外す</button></div>' +
+      seg('type', [['公休', '公休'], ['有休', '有休']]) + seg('half', [['全日', '1日'], ['午前', '午前'], ['午後', '午後']]) +
+      '<label class="meta" style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" id="ktLvFix"' + (L.fixed ? ' checked' : '') + '> 🔒 絶対動かせない休み（受けられるかの判定でずらす案を出さない）</label>' +
+      '<input class="f" id="ktLvMemo" placeholder="メモ（なくてもよい）" value="' + esc(L.memo || '') + '">' +
+      '<div class="meta" style="margin:4px 0">選んだ日：' + (days.length ? '<b>' + days.map(function (n) { return d.m + '/' + n; }).join('・') + '</b>（' + days.length + '日）' : 'まだありません') + '</div>' +
+      '<button type="button" class="btn" data-ktlvadd' + (days.length ? '' : ' disabled style="opacity:.45"') + '>選んだ ' + days.length + '日に ' + esc(L.type) + (L.half === '全日' ? '' : '（' + L.half + '）') + ' を入れる</button>' +
+      (ids.length ? '<button type="button" class="btn" data-ktlvdel="' + esc(ids.join(',')) + '" style="background:#B42318">選んだ日の休みを取り消す（' + ids.length + '件）</button>' : '') +
+      '<div class="meta" style="margin-top:4px">もう休みが入っている日は飛ばします（半日ずつなら同じ日に2つまで）。公休が月の日数をこえると注意が出ます</div></div>';
+  }
   function ktCardHtml() {
     var d = ktData;
     if (!d) return '<div class="card"><div class="meta">勤怠を読み込み中…</div></div>';
@@ -1295,12 +1315,14 @@
     html += '<div class="card"><div class="meta" style="font-size:14px;color:var(--text);line-height:1.8">出勤日数 <b>' + s.att + '</b>日（半休は0.5日）　有休 <b>' + s.paid + '</b>日<br>' +
       '総時間 <b>' + esc(s.total) + '</b>　普通 <b>' + esc(s.normal) + '</b>　残業 <b>' + esc(s.ot) + '</b>' + (s.night !== '0:00' ? '　深夜 <b>' + esc(s.night) + '</b>' : '') + '<br>' +
       '残業の残り <b style="color:' + (s.otOver ? '#B42318' : '#067647') + '">' + esc(s.otLeft) + '</b>（月' + s.otMax + '時間まで）</div></div>';
+    html += ktLv ? ktLvPanel() : '<button type="button" class="btn" data-ktlv="on" style="background:#1570EF;margin-bottom:8px">📅 休みをまとめて入れる・取り消す</button>';
     html += '<div class="card" style="padding:0;overflow-x:auto"><table class="kttb" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#eef1f5"><th>日</th><th>出勤</th><th>退勤</th><th>休暇</th><th>普通</th><th>残業</th><th>計</th></tr>' +
       d.days.map(function (x) {
         var mk = function (v, m) { return v ? (m ? '<small style="color:#B54708">' + esc(m) + '</small>' : '') + esc(v) : ''; };
-        var on = ktSel === x.d;
-        var row = '<tr data-ktday="' + x.d + '" style="cursor:pointer;' + (x.red ? 'color:#c00;' : '') + (on ? 'background:#FFFAEB;' : x.d % 2 ? 'background:#f6f6f6;' : '') + '">' +
-          '<td>' + (x.flag ? '<b title="打刻がそろっていない">' + esc(x.flag) + '</b> ' : '') + x.d + '(' + x.wd + ')</td><td>' + mk(x.in, x.inMark) + '</td><td>' + mk(x.out, x.outMark) + (x.outNext ? '<small>翌</small>' : '') + '</td><td><small>' + esc(x.leave) + '</small></td>' +
+        var on = !ktLv && ktSel === x.d, pick = ktLv && ktLv.sel[x.d];
+        var lvTxt = (x.lv && x.lv.length) ? x.lv.map(ktLvLabel).join('・') : x.leave;
+        var row = '<tr data-ktday="' + x.d + '" style="cursor:pointer;' + (x.red ? 'color:#c00;' : '') + (pick ? 'background:#D1E9FF;' : on ? 'background:#FFFAEB;' : x.d % 2 ? 'background:#f6f6f6;' : '') + '">' +
+          '<td>' + (ktLv ? (pick ? '☑ ' : '☐ ') : '') + (x.flag ? '<b title="打刻がそろっていない">' + esc(x.flag) + '</b> ' : '') + x.d + '(' + x.wd + ')</td><td>' + mk(x.in, x.inMark) + '</td><td>' + mk(x.out, x.outMark) + (x.outNext ? '<small>翌</small>' : '') + '</td><td><small' + (x.lv && x.lv.length ? ' style="color:#175CD3"' : '') + '>' + esc(lvTxt) + '</small></td>' +
           '<td>' + esc(x.normal) + '</td><td>' + (x.ot ? '<b>' + esc(x.ot) + '</b>' : '') + '</td><td>' + esc(x.total) + '</td></tr>';
         if (on && !x.future) row += '<tr><td colspan="7" style="background:#FFFAEB;padding:8px">' +
           '<div class="meta">' + d.m + '/' + x.d + ' の打刻を直す・足す（直した打刻は出勤簿に「＊」、足した打刻は「＋」が付きます。空にすると取り消し）</div>' +
@@ -1317,7 +1339,37 @@
     var t = e.target.closest('[data-ktpunch]');
     if (t) { ktPunch(t.getAttribute('data-ktpunch')); return; }
     if (location.hash.indexOf('#/kt') !== 0 || !ktData) return;
-    if ((t = e.target.closest('[data-ktstaff]'))) { ktStaff = t.getAttribute('data-ktstaff'); ktSel = 0; openKt(ktData.y + '-' + (ktData.m < 10 ? '0' : '') + ktData.m); return; }
+    if ((t = e.target.closest('[data-ktlv]'))) { e.preventDefault(); ktLv = t.getAttribute('data-ktlv') === 'on' ? { sel: {}, type: '公休', half: '全日', fixed: false, memo: '' } : null; ktSel = 0; renderKt(); return; }
+    if (ktLv) {
+      var keep = function () { if ($('ktLvMemo')) ktLv.memo = $('ktLvMemo').value; if ($('ktLvFix')) ktLv.fixed = $('ktLvFix').checked; };
+      if ((t = e.target.closest('[data-ktlvset]'))) { keep(); ktLv[t.getAttribute('data-ktlvset')] = t.getAttribute('data-v'); renderKt(); return; }
+      if ((t = e.target.closest('[data-ktlvpick]'))) {
+        keep();
+        if (t.getAttribute('data-ktlvpick') === 'none') ktLv.sel = {};
+        else ktData.days.forEach(function (x) { if ((x.wd === '土' || x.wd === '日') && !(x.lv && x.lv.length) && !x.in) ktLv.sel[x.d] = true; });
+        renderKt(); return;
+      }
+      if ((t = e.target.closest('[data-ktlvadd]'))) {
+        keep();
+        var dates = Object.keys(ktLv.sel).map(Number).sort(function (a, b) { return a - b; }).map(function (n) { return ktData.days[n - 1].iso; });
+        if (!dates.length) return;
+        loading(true);
+        call('ktLeave', { ym: ktYm(), staffId: ktStaff || '', dates: dates, type: ktLv.type, half: ktLv.half, fixed: ktLv.fixed, memo: ktLv.memo })
+          .then(function (d) { ktData = d; ktLv.sel = {}; renderKt(); okToast(d.note); if (d.warns && d.warns.length) setTimeout(function () { toast(d.warns.join('\n')); }, 1200); })
+          .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        return;
+      }
+      if ((t = e.target.closest('[data-ktlvdel]'))) {
+        keep();
+        if (!confirm('選んだ日の休み（' + t.getAttribute('data-ktlvdel').split(',').length + '件）を取り消しますか？')) return;
+        loading(true);
+        call('ktLeaveDel', { ym: ktYm(), staffId: ktStaff || '', ids: t.getAttribute('data-ktlvdel').split(',') })
+          .then(function (d) { ktData = d; ktLv.sel = {}; renderKt(); okToast(d.note); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        return;
+      }
+      if ((t = e.target.closest('[data-ktday]')) && !e.target.closest('input,button,label')) { keep(); var k = Number(t.getAttribute('data-ktday')); if (ktLv.sel[k]) delete ktLv.sel[k]; else ktLv.sel[k] = true; renderKt(); return; }
+    }
+    if ((t = e.target.closest('[data-ktstaff]'))) { ktStaff = t.getAttribute('data-ktstaff'); ktSel = 0; if (ktLv) ktLv.sel = {}; openKt(ktData.y + '-' + (ktData.m < 10 ? '0' : '') + ktData.m); return; }
     if ((t = e.target.closest('[data-ktsave]'))) {
       loading(true);
       call('ktEdit', { staffId: ktStaff || '', date: t.getAttribute('data-ktsave'), in: $('ktIn').value, out: $('ktOut').value, memo: $('ktMemo').value })
