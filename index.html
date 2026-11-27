@@ -452,7 +452,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-27m';
+  var SCREEN_VERSION = '2026-11-27n';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5241,7 +5241,11 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (!ci.rows) ciReset();
     var u = ci.unit;
     html += '<div class="head"><div class="big">' + esc(u ? u.unitNo : 'ユニットなし（バラ）') + '</div><div class="meta">' + esc(u ? u.kind + '・' + u.model + (u.n ? '・' + u.n + '本' : '') : '') + '</div></div>';
-    if (u && ci.auto && ci.auto.unitNo === u.unitNo) html += ciAutoHtml();
+    if (u && ci.autoLoading === u.unitNo) { html += '<div class="note">放電テスト・インピーダンスの結果を確かめています…</div>'; $('main').innerHTML = html; return; }
+    if (u && ci.auto && ci.auto.unitNo === u.unitNo) {
+      html += ciAutoHtml();
+      if (ci.auto.read) { $('main').innerHTML = html; return; } // 分解でQRを読んだユニットは自動で棚に入る（手では入れない。二重に数えないように）
+    }
     if (u && u.fixed) html += '<div class="lbl2">どこから（未計測）</div><div class="note">このユニットの本数は「' + esc(u.src.replace('/', ' ')) + '」に入っているので、そこから減らします（モジュールの種類は下で選んだとおりの棚に入ります）</div>';
     else html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">種類（全部同じならここで1回。他社リビルドなどでバラバラなら、下の行ごとに変える）</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
@@ -5258,39 +5262,47 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (u && u.fixed) html += '<div class="lbl2" style="margin-top:18px">検査しないで売る</div><button class="btn sub" data-ciresale="1">📦 検査しないで再販用ユニットにする（' + esc(u.unitNo) + (u.n ? '・' + u.n + '本' : '') + '）</button>';
     $('main').innerHTML = html;
   }
-  // ---- 放電テスト・インピーダンスの結果から、検査の結果を自動で入れる（11/27m〜）----
+  // ---- 放電テスト・インピーダンスの結果から、自動で棚に入る（11/27m〜、11/27n〜 人の登録なし）----
+  //   分解でモジュールのQRを読んだユニットは、結果がそろうとサーバーが自動で棚・ジャンクへ入れる。ここは今どうなっているかを見るだけ
   function ciAutoLoad() {
     var u = ci.unit; if (!u) return;
+    ci.autoLoading = u.unitNo;
     call('impUnitPlan', { unitNo: u.unitNo }).then(function (d) {
-      if (!ci.unit || ci.unit.unitNo !== u.unitNo || location.hash !== '#/inv/cinsp') return;
-      ci.auto = d;
-      if (d.rows.length || d.junk) {
-        ci.rows = d.rows.map(function (r) { return { w: r.w, grade: r.grade, rank: r.rank, n: String(r.n), lo: r.lo, hi: r.hi }; });
-        if (!ci.rows.length) ci.rows = [ciNewRow('1年')];
-        ci.junk = d.junk ? String(d.junk) : '';
-        if (d.type) { ci.grade = d.type; if (!ci.src && !(u && u.fixed)) ci.src = d.type === 'G3' ? '未計測/G3' : '未計測/G2'; }
-        if (!ci.note) ci.note = '放電テスト・インピーダンスから自動';
-      }
-      renderCntInspect();
-    }).catch(function () { /* 下書きが作れなくても、今までどおり手で入れられる */ });
+      if (!ci.unit || ci.unit.unitNo !== u.unitNo) return;
+      ci.autoLoading = ''; ci.auto = d;
+      if (location.hash === '#/inv/cinsp') renderCntInspect();
+    }).catch(function () { // 確かめられなければ、今までどおり手で入れられる
+      if (ci.autoLoading === u.unitNo) ci.autoLoading = '';
+      if (location.hash === '#/inv/cinsp') renderCntInspect();
+    });
   }
   function ciAutoHtml() {
     var d = ci.auto;
     if (!d.read) return '<div class="note">' + esc(d.notes.join('／')) + '</div>';
-    var ok = d.complete;
-    var h = '<div class="panel" style="border:2px solid ' + (ok ? '#12B76A' : '#F79009') + ';background:' + (ok ? '#ECFDF3' : '#FFFAEB') + '">';
-    h += '<b>' + (ok ? '✓ 放電テストとインピーダンスの結果から入れました' : '⚠ 放電テストとインピーダンスの結果から、わかる分だけ入れました') + '</b>';
-    h += '<div class="meta">分解で読んだ ' + d.read + '本' + (d.need ? '（このユニットは ' + d.need + '本）' : '') + '：合格 ' + d.ok + '本・ジャンク ' + d.junk + '本' +
-      (d.pending.length ? '・結果待ち ' + d.pending.length + '本' : '') + (d.recheck.length ? '・測り直し ' + d.recheck.length + '本' : '') + '</div>';
-    if (d.notes.length) h += '<div class="meta" style="color:#B54708">' + esc(d.notes.join('／')) + '</div>';
     var lst = function (title, a) { return a.length ? '<div class="meta"><b>' + title + '</b>：' + esc(a.slice(0, 12).map(function (x) { return x.qr + ' ' + x.why; }).join('／')) + (a.length > 12 ? ' ほか' + (a.length - 12) + '本' : '') + '</div>' : ''; };
+    var rowTxt = function (r) { return (r.w === '半年' ? '半年用' : r.w + '用') + ' ' + r.grade + ' ' + r.rank + '　' + r.n + '本' + (r.lo ? '（' + r.lo + (r.hi ? '〜' + r.hi : '') + '）' : ''); };
+    var h = '';
+    if (d.done) {
+      h += '<div class="panel" style="border:2px solid #12B76A;background:#ECFDF3"><b>✓ 自動で棚に入れました（検査済み）</b>' +
+        '<div class="meta">分解で読んだ ' + d.read + '本：棚 ' + d.filed + '本・ジャンク ' + d.junk + '本' + (d.other ? '・もう修理に使った ' + d.other + '本' : '') + (d.pending.length || d.recheck.length ? '・結果待ち ' + (d.pending.length + d.recheck.length) + '本（結果が入れば、そのまま棚に入ります）' : '') + '</div>';
+    } else {
+      h += '<div class="panel" style="border:2px solid #2E90FA;background:#EFF8FF"><b>🤖 このユニットは、結果がそろうと自動で棚に入ります</b><div class="meta">ここで登録する必要はありません（人が入れると二重になるので、入れられないようにしています）</div>' +
+        '<div class="meta" style="margin-top:4px">分解で読んだ ' + d.read + '本' + (d.need ? '（このユニットは ' + d.need + '本）' : '') + '：ジャンク ' + d.junk + '本（もう入れました）・そろうと棚に入る ' + d.ok + '本' +
+        (d.pending.length ? '・<b>結果待ち ' + d.pending.length + '本</b>' : '') + (d.recheck.length ? '・<b style="color:#B42318">測り直し ' + d.recheck.length + '本</b>' : '') + '</div>';
+    }
+    if (d.notes.length) h += '<div class="meta" style="color:#B54708">' + esc(d.notes.join('／')) + '</div>';
     h += lst('測り直し', d.recheck) + lst('結果待ち', d.pending);
+    if (!d.done && d.rows.length) h += '<div class="meta" style="margin-top:4px"><b>そろったら入る棚</b>：' + esc(d.rows.map(rowTxt).join('／')) + '</div>';
     if (d.junkList && d.junkList.length) h += '<div class="meta">ジャンク：' + esc(d.junkList.slice(0, 12).join('・')) + (d.junkList.length > 12 ? ' ほか' : '') + '</div>';
-    h += '<div class="meta" style="margin-top:4px">' + (ok ? '下の内容を見て「この結果で登録する」を押すだけです（直すところがあれば直せます）' : '結果待ち・測り直しのモジュールは入っていません。そろってから開き直すと、全部入ります') + '</div></div>';
+    h += '</div>';
+    var boss = me && (me.role === '店長' || me.role === '管理者');
+    if (!d.done && (d.pending.length || d.recheck.length) && boss) h += '<button class="btn sub" data-ciforce="1">結果を待たずに、そろった分だけ棚に入れる（店長・管理者）</button><div class="note">測り直せないモジュール（なくした・こわれた）があるときだけ使います。待っている ' + (d.pending.length + d.recheck.length) + '本は未計測に残ります</div>';
+    h += '<button class="btn sub" data-ciautoback="1">ユニットの一覧に戻る</button>';
     return h;
   }
   function ciSave() {
     var u = ci.unit, total = ciTotal();
+    if (u && ci.auto && ci.auto.unitNo === u.unitNo && ci.auto.read) { toast('このユニットは自動で棚に入ります（ここでは登録しません）'); return; }
     if (!ci.src) { toast('どこ（未計測 G2・G3）から検査したかを選んでください'); return; }
     var rows = ci.rows.filter(function (r) { return Number(r.n) > 0; });
     if (!total) { toast('本数を入れてください'); return; }
@@ -5510,6 +5522,20 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       renderImp();
     }).catch(function () { /* 最近の一覧が出なくても読める */ });
   }
+  // 取り込んだあと、自動で棚・ジャンクへ入れた結果（11/27n〜）
+  function autoFileHtml(a) {
+    a = (a || []).filter(function (x) { return x && (x.text || x.error); });
+    if (!a.length) return '';
+    return '<div class="h2">自動で棚・ジャンクへ</div>' + a.map(function (x) {
+      var c = x.error ? '#F04438' : x.doneNow ? '#12B76A' : x.filed || x.junk ? '#2E90FA' : '#D0D5DD';
+      return '<div class="panel" style="border:2px solid ' + c + '"><b>' + (x.unit ? '<a href="#/inv/lot/' + encodeURIComponent(x.unit) + '">' + esc(x.unit) + '</a>　' : '') + '</b>' + esc(x.error ? x.text : x.text || '変わりなし') +
+        (x.shelves && x.shelves.length ? '<div style="margin-top:4px"><b>この棚へ入れてください</b>' + x.shelves.map(function (s) {
+          return '<div class="meta">・' + esc(s.label) + '　<b>' + s.n + '本</b>' + (s.range ? '（' + esc(s.range) + '）' : '') + '<details><summary class="meta">モジュール</summary><div class="meta">' + esc(s.qrs.join('・')) + '</div></details></div>';
+        }).join('') + '</div>' : '') +
+        (x.junkList && x.junkList.length ? '<div class="meta"><b>ジャンクへ</b>：' + esc(x.junkList.join('・')) + '</div>' : '') +
+        (x.notes && x.notes.length ? '<div class="meta" style="color:#B54708">' + esc(x.notes.join('／')) + '</div>' : '') + '</div>';
+    }).join('');
+  }
   function renderImp() {
     var d = impData || {};
     var bad = function (j) { return /廃棄|不合格/.test(String(j)); };
@@ -5534,6 +5560,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
             (u.split ? '<div class="meta" style="color:#B54708">等級が分かれています。組むときは等級ごとに分けてください</div>' : '') + '</div>';
         }).join('');
       }
+      html += autoFileHtml(d.auto);
     }
     var R = d.recent || [];
     html += '<div class="h2">最近取り込んだ測定</div>' + (R.length ? '<table class="t">' + R.map(function (b) {
@@ -5585,9 +5612,10 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
         html += '<div class="h2">ユニットごと（このユニットで測ったもの全部）</div>' + d.units.map(function (u) {
           return '<div class="panel"><b><a href="#/inv/lot/' + encodeURIComponent(u.unit) + '">' + esc(u.unit) + '</a></b>' + (u.types.length ? '　' + esc(u.types.join('・')) : '') +
             '<div>' + esc(u.text) + '</div>' +
-            '<div class="meta">測った ' + u.measured + '本（分解で読んだ ' + u.total + '本のうち）。本数は「検査の結果（ユニットごと）」で入れてください</div>' +
+            '<div class="meta">測った ' + u.measured + '本（分解で読んだ ' + u.total + '本のうち）。棚・ジャンクへは自動で入ります（下の「自動で棚・ジャンクへ」）</div>' +
             (u.mixed ? '<div class="meta" style="color:#B54708">種類が混ざっています。表示アプリで選んだ種類を確かめてください</div>' : '') + '</div>';
         }).join('');
+        html += autoFileHtml(d.units.map(function (u) { return u.auto; }));
       }
     }
     var R = d.recent || [];
@@ -5639,6 +5667,20 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
         return;
       }
       if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; ci.rows = null; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-ciautoback]'))) { ci.unit = null; ci.auto = null; ci.rows = null; openCntInspect(); return; }
+      if ((t = e.target.closest('[data-ciforce]'))) {
+        var fu = ci.unit; if (!fu || !ci.auto) return;
+        confirmSheet(fu.unitNo + '：結果を待っている ' + (ci.auto.pending.length + ci.auto.recheck.length) + '本を除いて、そろった分だけ棚に入れ、ユニットを検査済みにします。\n待っている分は未計測に残ります（あとで結果が入れば、そのまま棚に入ります）。\nよろしいですか？', '棚に入れる').then(function (ok) {
+          if (!ok) return;
+          loading(true);
+          call('impUnitFile', { unitNo: fu.unitNo }).then(function (d) {
+            ci.data = d; ci.unit = null; ci.auto = null; ci.rows = null; invData = null; renderCntInspect(); window.scrollTo(0, 0);
+            okToast(fu.unitNo + '：' + ((d.autoDone && d.autoDone.text) || '棚に入れました'));
+            if (d.autoDone && d.autoDone.notes && d.autoDone.notes.length) toast(d.autoDone.notes.join('／'));
+          }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        });
+        return;
+      }
       if ((t = e.target.closest('[data-cig]'))) {
         var old = ci.grade;
         ci.grade = t.getAttribute('data-cig'); if (!ci.src && !(ci.unit && ci.unit.fixed)) ci.src = ci.grade === 'G3' ? '未計測/G3' : '未計測/G2';
