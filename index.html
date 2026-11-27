@@ -452,7 +452,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-27l';
+  var SCREEN_VERSION = '2026-11-27m';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5241,6 +5241,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (!ci.rows) ciReset();
     var u = ci.unit;
     html += '<div class="head"><div class="big">' + esc(u ? u.unitNo : 'ユニットなし（バラ）') + '</div><div class="meta">' + esc(u ? u.kind + '・' + u.model + (u.n ? '・' + u.n + '本' : '') : '') + '</div></div>';
+    if (u && ci.auto && ci.auto.unitNo === u.unitNo) html += ciAutoHtml();
     if (u && u.fixed) html += '<div class="lbl2">どこから（未計測）</div><div class="note">このユニットの本数は「' + esc(u.src.replace('/', ' ')) + '」に入っているので、そこから減らします（モジュールの種類は下で選んだとおりの棚に入ります）</div>';
     else html += '<div class="lbl2">どこから（未計測）</div><div class="seg">' + ['未計測/G2', '未計測/G3'].map(function (x) { return '<button data-cisrc="' + x + '"' + (ci.src === x ? ' class="on"' : '') + '>' + x.replace('/', ' ') + '（今 ' + (d.now[x] || 0) + '本）</button>'; }).join('') + '</div>';
     html += '<div class="lbl2">種類（全部同じならここで1回。他社リビルドなどでバラバラなら、下の行ごとに変える）</div><div class="seg">' + CNT_G.map(function (g) { return '<button data-cig="' + g + '"' + (ci.grade === g ? ' class="on"' : '') + '>' + g + '</button>'; }).join('') + '</div>';
@@ -5257,6 +5258,37 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (u && u.fixed) html += '<div class="lbl2" style="margin-top:18px">検査しないで売る</div><button class="btn sub" data-ciresale="1">📦 検査しないで再販用ユニットにする（' + esc(u.unitNo) + (u.n ? '・' + u.n + '本' : '') + '）</button>';
     $('main').innerHTML = html;
   }
+  // ---- 放電テスト・インピーダンスの結果から、検査の結果を自動で入れる（11/27m〜）----
+  function ciAutoLoad() {
+    var u = ci.unit; if (!u) return;
+    call('impUnitPlan', { unitNo: u.unitNo }).then(function (d) {
+      if (!ci.unit || ci.unit.unitNo !== u.unitNo || location.hash !== '#/inv/cinsp') return;
+      ci.auto = d;
+      if (d.rows.length || d.junk) {
+        ci.rows = d.rows.map(function (r) { return { w: r.w, grade: r.grade, rank: r.rank, n: String(r.n), lo: r.lo, hi: r.hi }; });
+        if (!ci.rows.length) ci.rows = [ciNewRow('1年')];
+        ci.junk = d.junk ? String(d.junk) : '';
+        if (d.type) { ci.grade = d.type; if (!ci.src && !(u && u.fixed)) ci.src = d.type === 'G3' ? '未計測/G3' : '未計測/G2'; }
+        if (!ci.note) ci.note = '放電テスト・インピーダンスから自動';
+      }
+      renderCntInspect();
+    }).catch(function () { /* 下書きが作れなくても、今までどおり手で入れられる */ });
+  }
+  function ciAutoHtml() {
+    var d = ci.auto;
+    if (!d.read) return '<div class="note">' + esc(d.notes.join('／')) + '</div>';
+    var ok = d.complete;
+    var h = '<div class="panel" style="border:2px solid ' + (ok ? '#12B76A' : '#F79009') + ';background:' + (ok ? '#ECFDF3' : '#FFFAEB') + '">';
+    h += '<b>' + (ok ? '✓ 放電テストとインピーダンスの結果から入れました' : '⚠ 放電テストとインピーダンスの結果から、わかる分だけ入れました') + '</b>';
+    h += '<div class="meta">分解で読んだ ' + d.read + '本' + (d.need ? '（このユニットは ' + d.need + '本）' : '') + '：合格 ' + d.ok + '本・ジャンク ' + d.junk + '本' +
+      (d.pending.length ? '・結果待ち ' + d.pending.length + '本' : '') + (d.recheck.length ? '・測り直し ' + d.recheck.length + '本' : '') + '</div>';
+    if (d.notes.length) h += '<div class="meta" style="color:#B54708">' + esc(d.notes.join('／')) + '</div>';
+    var lst = function (title, a) { return a.length ? '<div class="meta"><b>' + title + '</b>：' + esc(a.slice(0, 12).map(function (x) { return x.qr + ' ' + x.why; }).join('／')) + (a.length > 12 ? ' ほか' + (a.length - 12) + '本' : '') + '</div>' : ''; };
+    h += lst('測り直し', d.recheck) + lst('結果待ち', d.pending);
+    if (d.junkList && d.junkList.length) h += '<div class="meta">ジャンク：' + esc(d.junkList.slice(0, 12).join('・')) + (d.junkList.length > 12 ? ' ほか' : '') + '</div>';
+    h += '<div class="meta" style="margin-top:4px">' + (ok ? '下の内容を見て「この結果で登録する」を押すだけです（直すところがあれば直せます）' : '結果待ち・測り直しのモジュールは入っていません。そろってから開き直すと、全部入ります') + '</div></div>';
+    return h;
+  }
   function ciSave() {
     var u = ci.unit, total = ciTotal();
     if (!ci.src) { toast('どこ（未計測 G2・G3）から検査したかを選んでください'); return; }
@@ -5271,7 +5303,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       if (!ok) return;
       loading(true);
       call('cntInspect', { unitNo: u ? u.unitNo : '', src: ci.src, rows: rows, junk: Number(ci.junk) || 0, note: ci.note || '', brokeAt: ci.broke || '' }).then(function (d) {
-        ci.data = d; ci.last = d.saved; ci.unit = null; ci.bara = false; ci.rows = null; invData = null;
+        ci.data = d; ci.last = d.saved; ci.unit = null; ci.bara = false; ci.rows = null; ci.auto = null; invData = null;
         if (d.notes && d.notes.length) toast(d.notes.join('／'));
         renderCntInspect(); window.scrollTo(0, 0);
       }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
@@ -5594,7 +5626,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       if ((t = e.target.closest('[data-ciu]'))) {
         var no = t.getAttribute('data-ciu');
         ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
-        ci.src = ci.unit.src || (ci.unit.type === 'G3' ? '未計測/G3' : ci.unit.type ? '未計測/G2' : ''); ci.grade = ci.unit.type || ''; ci.rows = null; renderCntInspect(); window.scrollTo(0, 0); return;
+        ci.src = ci.unit.src || (ci.unit.type === 'G3' ? '未計測/G3' : ci.unit.type ? '未計測/G2' : ''); ci.grade = ci.unit.type || ''; ci.rows = null; ci.auto = null; renderCntInspect(); window.scrollTo(0, 0); ciAutoLoad(); return;
       }
       if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; ci.rows = null; renderCntInspect(); return; }
       if ((t = e.target.closest('[data-ciresale]'))) {
