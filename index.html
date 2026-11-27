@@ -449,7 +449,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-27a';
+  var SCREEN_VERSION = '2026-11-27b';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -1483,7 +1483,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     h += '<div class="meta" style="margin:2px 0">' + esc(x.start) + (x.directGo ? ' 家を出る（直行）' : ' 出勤') + (x.late ? '（遅めでよい）' : '') + (x.leave ? '（' + esc(x.leave) + '休）' : '') + (x.noOt ? '　🚫 残業できない日' : '') + '</div>';
     var mkN = 0, circ = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
     if (x.seq) h += '<div style="margin:4px 0 6px;padding:6px 8px;background:#EFF8FF;border-radius:8px;font-size:13px"><b>🔧 製造の順番</b><br>' + esc(x.seq) + '</div>';
-    var color = { job: '#1F3A5F', ev: '#6941C6', move: '#98A2B3', lunch: '#98A2B3', chg: '#B54708', build: '#067647', insp: '#175CD3', take: '#175CD3', pre: '#175CD3', resale: '#7A5AF8', sales: '#C11574' };
+    var color = { job: '#1F3A5F', ev: '#6941C6', move: '#98A2B3', lunch: '#98A2B3', chg: '#B54708', build: '#067647', insp: '#175CD3', take: '#175CD3', pre: '#175CD3', resale: '#7A5AF8', sales: '#C11574', todo: '#C4320A' };
     h += x.lines.length ? x.lines.map(function (l) {
       if (l.kind === 'note') return '<div class="meta" style="padding:4px 0">💡 ' + esc(l.label) + '</div>';
       return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #F2F4F7"><span style="min-width:92px;font-weight:700;color:' + (color[l.kind] || '#344054') + '">' + esc(l.from + '〜' + l.to) + '</span><span style="flex:1' + (l.kind === 'move' || l.kind === 'lunch' ? ';color:#667085' : '') + '">' + (['take', 'pre', 'insp', 'resale'].indexOf(l.kind) >= 0 ? '<b style="color:#175CD3">' + (circ.charAt(mkN++) || '・') + '</b> ' : '') + esc(l.label) + (l.place ? '<span class="meta">（' + esc(l.place) + '）</span>' : '') + '</span></div>';
