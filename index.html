@@ -452,7 +452,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-27i';
+  var SCREEN_VERSION = '2026-11-27k';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -831,6 +831,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     else if (h === '#/inv/cadj') openCntAdj();
     else if (h === '#/inv/clog') openCntLog();
     else if (h === '#/inv/imp') openImp(); // 交流インピーダンスの結果（11/27j〜）
+    else if (h === '#/inv/dtest') openDtest(); // 放電テストの結果（11/27k〜）
     else if (h.indexOf('#/inv/lot/') === 0) openCntUnit(decodeURIComponent(h.slice(10)));
     else if (h === '#/new') openNew();
     else if (h === '#/hidden') openHidden();
@@ -5041,7 +5042,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/plan">先にばらすユニット</a><a href="#/inv/junk" class="alt">ジャンク・ユニットの売却</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
     if (C && C.repairOrders.length) html += '<div class="meta" style="margin:-4px 0 8px">修理用の内訳：' + C.repairOrders.map(function (x) { return '<a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a> ' + x.n + '本'; }).join('・') + '</div>';
     if (C && C.recent.length) html += '<table class="t">' + C.recent.map(function (x) { return '<tr><td class="meta">' + esc(x.at) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + (x.key ? '<span class="meta">（' + esc(x.key) + '）</span>' : '') + '</td><td class="n">' + x.n + '</td></tr>'; }).join('') + '</table>';
-    html += '<div class="h2">QRで1本ずつ</div><div class="btns"><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/imp">インピーダンスの結果</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
+    html += '<div class="h2">QRで1本ずつ</div><div class="btns"><a href="#/inv/dis">分解</a><a href="#/inv/insp">検査の登録</a><a href="#/inv/dtest">放電テストの結果</a><a href="#/inv/imp">インピーダンスの結果</a><a href="#/inv/pre">予備充電</a><a href="#/inv/stock" class="alt">棚卸し</a></div>';
     html += '<div class="h2">棚ごとの本数（どの棚にあるか）</div>';
     html += d.shelves.length ? '<table class="t"><tr><th>種類</th><th>保証</th><th>ランク</th><th>棚</th><th style="text-align:right">本数</th></tr>' + d.shelves.map(function (s) {
       return '<tr><td>' + esc(s.grade) + '</td><td>' + esc(s.warranty) + '</td><td>' + esc(s.rank) + '</td><td class="meta">' + esc(s.shelf) + '</td><td class="n">' + s.count + '</td></tr>';
@@ -5433,6 +5434,61 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     }
     var R = d.recent || [];
     html += '<div class="h2">最近取り込んだ測定</div>' + (R.length ? '<table class="t">' + R.map(function (b) {
+      return '<tr><td class="meta">' + esc(b.at) + '</td><td>' + esc(b.machine) + '　' + b.n + '本' + (b.noQr ? '<span class="meta">（モジュール未登録 ' + b.noQr + '本）</span>' : '') +
+        '<div class="meta">' + esc(b.judges) + '</div></td></tr>';
+    }).join('') + '</table>' : '<div class="empty">まだありません</div>');
+    $('main').innerHTML = html;
+  }
+  // ---- 放電テストの結果（11/27k〜）----
+  //   試験機のパソコンの表示アプリ（discharge-viewer）が画面に出す「業務システム用QR」を撮って取り込む
+  //   試験機のパソコンがネットにつながっていれば、表示アプリが自動で送ってくる（そのときはここで撮らなくてよい）
+  var dtData = null;
+  function openDtest() {
+    setNav('#/inv', '#/inv');
+    $('title').textContent = '放電テストの結果';
+    scanHandlers.dtest = function (text) {
+      loading(true);
+      return call('dtestImport', { text: text }).then(function (d) {
+        dtData = d;
+        if (location.hash === '#/inv/dtest') renderDtest();
+        okToast(d.added ? d.added + '本の結果を入れました' : d.updated ? d.updated + '本を直した内容に書きかえました' : 'この試験はもう取り込みずみです');
+      }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
+    };
+    renderDtest();
+    call('dtestRecent', {}).then(function (d) {
+      if (location.hash !== '#/inv/dtest') return;
+      dtData = dtData || {};
+      dtData.recent = d.list;
+      renderDtest();
+    }).catch(function () { /* 最近の一覧が出なくても読める */ });
+  }
+  function renderDtest() {
+    var d = dtData || {};
+    var color = function (v) { return /不合格/.test(v) ? '#B42318' : /異常/.test(v) ? '#6941C6' : /半年/.test(v) ? '#B54708' : /2年/.test(v) ? '#175CD3' : /1年/.test(v) ? '#067647' : ''; };
+    var html = '<div class="note">試験機のパソコンの表示アプリで「業務システム用QR」を出し、下の「カメラ」でQRを撮ってください。1回の試験（8ch）がまとめて入ります。同じQRを何度撮っても二重にはなりません。試験機のパソコンがネットにつながっているときは自動で入るので、撮らなくてもかまいません（下の「最近取り込んだ試験」で確かめられます）。</div>';
+    html += scanBox('dtest', 'QRを撮る（右の「カメラ」）');
+    if (d.lines) {
+      html += '<div class="h2">' + esc(d.machine) + '　' + esc(d.at) + ' に試験</div>';
+      html += '<table class="t"><tr><th>ch</th><th>モジュール</th><th>結果</th></tr>' + d.lines.map(function (l) {
+        var c = color(l.verdict);
+        return '<tr><td>' + l.ch + '</td><td>' + (l.qr ? esc(l.qr.length > 10 ? '…' + l.qr.slice(-8) : l.qr) : '<span class="meta">未登録</span>') +
+          '<div class="meta">' + esc(l.type || '種類未選択') + '</div>' +
+          (l.unit ? '<div class="meta"><a href="#/inv/lot/' + encodeURIComponent(l.unit) + '">' + esc(l.unit) + '</a></div>' : '') + '</td>' +
+          '<td><b' + (c ? ' style="color:' + c + '"' : '') + '>' + (l.score === null || l.score === undefined ? '' : esc(Number(l.score).toFixed(1)) + '　') + esc(l.verdict) + '</b>' +
+          (l.text ? '<div class="meta" style="color:#B54708">' + esc(l.text) + '</div>' : '') +
+          '<div class="meta">最終 ' + esc(l.w) + 'W・調整値 ' + (l.adj > 0 ? '+' : '') + l.adj + '</div></td></tr>';
+      }).join('') + '</table>';
+      if (d.units && d.units.length) {
+        html += '<div class="h2">ユニットごと（このユニットで測ったもの全部）</div>' + d.units.map(function (u) {
+          return '<div class="panel"><b><a href="#/inv/lot/' + encodeURIComponent(u.unit) + '">' + esc(u.unit) + '</a></b>' + (u.types.length ? '　' + esc(u.types.join('・')) : '') +
+            '<div>' + esc(u.text) + '</div>' +
+            '<div class="meta">測った ' + u.measured + '本（分解で読んだ ' + u.total + '本のうち）。本数は「検査の結果（ユニットごと）」で入れてください</div>' +
+            (u.mixed ? '<div class="meta" style="color:#B54708">種類が混ざっています。表示アプリで選んだ種類を確かめてください</div>' : '') + '</div>';
+        }).join('');
+      }
+    }
+    var R = d.recent || [];
+    html += '<div class="h2">最近取り込んだ試験</div>' + (R.length ? '<table class="t">' + R.map(function (b) {
       return '<tr><td class="meta">' + esc(b.at) + '</td><td>' + esc(b.machine) + '　' + b.n + '本' + (b.noQr ? '<span class="meta">（モジュール未登録 ' + b.noQr + '本）</span>' : '') +
         '<div class="meta">' + esc(b.judges) + '</div></td></tr>';
     }).join('') + '</table>' : '<div class="empty">まだありません</div>');
