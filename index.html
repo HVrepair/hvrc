@@ -452,7 +452,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-27d';
+  var SCREEN_VERSION = '2026-11-27e';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -4311,7 +4311,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
           var max = cur ? cur.n : (d.shelves[id] || 0);
           html += '<div class="meta" style="margin:4px 0 0"><span class="shelfline">' + esc(r.grade + ' ' + r.rank) + '（' + esc(r.cat === '半年' ? '半年用' : '使用可能') + '）</span>' + (cur ? 'このユニットの残り <b>' + cur.n + '本</b>' : 'この棚の本数 <b>' + (d.shelves[id] || 0) + '本</b>') +
             (cur && cur.unit ? '<button type="button" class="mini" data-cfix="' + i + '" style="margin:4px 0 0 0;display:block">種類・ランクがちがう？ → 直す</button>' : '') +
-            (cur && cur.lot ? '<button type="button" class="mini" data-cdrop="' + i + '" style="margin:4px 0 0 0;display:block;border-color:#B42318;color:#B42318">このユニットは棚にない → 消す</button>' : '') +
+            (cur ? '<button type="button" class="mini" data-cdrop="' + i + '" style="margin:4px 0 0 0;display:block;border-color:#B42318;color:#B42318">' + (cur.lot ? 'このユニットは棚にない → 消す' : 'このユニット不明の分は棚にない → 消す') + '</button>' : '') +
             '<button type="button" class="mini" data-crecount="' + esc(id) + '" style="margin:4px 0 0 0;display:block' + (cGap(id) < 0 ? ';border-color:#B42318;color:#B42318' : '') + '">' + (cGap(id) < 0 ? '⚠ 棚の本数とユニットの合計がずれています → ' : '本数がちがう？ → ') + 'この棚を数え直す</button>' + '</div>' +
             '<div class="step" style="margin-top:8px">② 何本出す？</div>' +
             '<div style="display:flex;gap:6px;align-items:center"><input class="f" type="number" inputmode="numeric" data-crow="' + i + '" data-ck="n" value="' + esc(r.n) + '" style="min-width:0;margin:0;flex:1" placeholder="本">' +
@@ -4362,7 +4362,8 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       bg.innerHTML = '<div class="sheet" style="max-height:88vh;overflow:auto"><p><b>棚の中を数え直す</b>（' + esc(id.replace('/', ' ').replace('/', '－')) + '）</p>' +
         '<div class="note">棚の本数 ' + (d.shelves[id] || 0) + '本・ユニットごとの残りの合計 ' + (Number(d.shelves[id] || 0) - gap) + '本' + (gap < 0 ? '（<b style="color:#B42318">' + (-gap) + '本 多い</b>。前に棚卸しで合計だけ減らした分です）' : gap > 0 ? '（ユニット不明 ' + gap + '本）' : '') + '。今この棚にある本数を、ユニットごとに数えて入れてください。棚の本数は合計に変わります</div>' +
         '<table class="t">' + ls.map(function (l, i) { return '<tr><td>' + esc(l.unit || 'ユニット不明') + (l.rangeLabel ? '<span class="meta"> ' + esc(l.rangeLabel) + '</span>' : '') + '<div class="meta">記録 ' + l.n + '本</div></td><td style="width:90px"><input class="f" type="number" inputmode="numeric" data-rc="' + i + '" value="' + l.n + '" style="margin:0"></td></tr>'; }).join('') +
-        '<tr><td>ユニット不明<div class="meta">記録 ' + gap + '本</div></td><td><input class="f" type="number" inputmode="numeric" data-rc="u" value="' + Math.max(0, gap) + '" style="margin:0"></td></tr></table>' +
+        (ls.some(function (l) { return !l.lot; }) ? '' : '<tr><td>ユニット不明<div class="meta">記録 ' + gap + '本</div></td><td><input class="f" type="number" inputmode="numeric" data-rc="u" value="' + Math.max(0, gap) + '" style="margin:0"></td></tr>') + '</table>' +
+        '<div class="note">記録の上で出しすぎているユニット（マイナス）は 0 にします</div>' +
         '<div class="two" style="margin-top:12px"><button data-a="0">やめる</button><button class="danger" data-a="1">この本数にする</button></div></div>';
       bg.addEventListener('click', function (e) {
         var a = e.target.getAttribute('data-a');
@@ -4794,7 +4795,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       cRead();
       var di = Number(t.getAttribute('data-cdrop')), dr = cRows[di], did = dr.cat + '/' + dr.grade + '/' + dr.rank, dl = cLotOf(did, dr.lot), dk = current.key, dgap = cGap(did);
       if (!dl) return;
-      confirmSheet((dl.unit || 'ユニット不明') + (dl.rangeLabel ? '（' + dl.rangeLabel + '）' : '') + ' の ' + dl.n + '本を、' + dr.grade + '－' + dr.rank + 'の棚から消しますか？' + (dgap < 0 ? '（この棚は前に棚卸しで合計を ' + (-dgap) + '本 減らしているので、その分までは棚の本数は変わりません）' : '（棚の本数も ' + dl.n + '本 減ります）'), '消す').then(function (ok) {
+      confirmSheet((dl.unit || 'ユニット不明') + (dl.rangeLabel ? '（' + dl.rangeLabel + '）' : '') + ' の ' + dl.n + '本を、' + dr.grade + '－' + dr.rank + 'の棚から消しますか？' + (dgap < 0 ? '（この棚はユニットの合計が棚の本数より ' + (-dgap) + '本 多いので、記録の上で出しすぎていたユニットと打ち消します。その分までは棚の本数は変わりません）' : '（棚の本数も ' + dl.n + '本 減ります）'), '消す').then(function (ok) {
         if (!ok) return;
         loading(true);
         return call('cntDrop', { items: [{ id: did, lot: dl.lot }], key: dk, noPf: true }).then(function (d) { loading(false); cntData = d; cRows.splice(di, 1); if (!cRows.length) cRowsInit(); invData = null; renderOrder(false); okToast((d.notes || []).join('／')); });
