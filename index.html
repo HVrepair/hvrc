@@ -4213,6 +4213,77 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     });
     return zxLoading;
   }
+  // 試験機の画面に出した大きなQR（インピーダンス・放電テストの結果）は、写真の大きさを変えて何回か読む（11/27l〜）
+  //   ふつうのカメラアプリでは読めるのに、アプリの「カメラ」では読めなかったため。1回目にスマホの読み取り機能（BarcodeDetector）、
+  //   だめなら QR 専用の部品（jsQR）で大きさを変えて読み、最後に今までの読み方（ZXing）
+  var QR_SCREEN_SCANS = ['imp', 'dtest'];
+  var JSQR_URL = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+  var jsqrLoading = null;
+  function loadJsQR() {
+    if (window.jsQR) return Promise.resolve();
+    if (jsqrLoading) return jsqrLoading;
+    jsqrLoading = new Promise(function (resolve, reject) {
+      var sc = document.createElement('script');
+      sc.src = JSQR_URL;
+      sc.onload = resolve;
+      sc.onerror = function () { jsqrLoading = null; reject(new Error('QR読み取りの部品を読み込めませんでした（電波を確認）')); };
+      document.head.appendChild(sc);
+    });
+    return jsqrLoading;
+  }
+  function loadImgFile(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var im = new Image();
+      im.onload = function () { resolve({ im: im, url: url }); };
+      im.onerror = function () { URL.revokeObjectURL(url); reject(new Error('写真を開けませんでした。もう一度撮ってください')); };
+      im.src = url;
+    });
+  }
+  function decodeQrImage(file) {
+    return Promise.all([loadJsQR().catch(function () { return null; }), loadImgFile(file)]).then(function (a) {
+      var im = a[1].im, url = a[1].url;
+      var W = im.naturalWidth || im.width, H = im.naturalHeight || im.height, big = Math.max(W, H);
+      var native = function () {
+        if (!('BarcodeDetector' in window)) return Promise.resolve(null);
+        try {
+          return new window.BarcodeDetector({ formats: ['qr_code'] }).detect(im)
+            .then(function (r) { return r && r[0] && r[0].rawValue ? r[0].rawValue : null; }, function () { return null; });
+        } catch (e) { return Promise.resolve(null); }
+      };
+      return native().then(function (t) {
+        if (t || !window.jsQR) return t;
+        // 大きいまま読むと遅く、画面のちらつき（モアレ）で読めない。なめらかに縮めて 1000〜1800px で読む（試した結果）
+        var sizes = [1000, 1400, 800, 1800].filter(function (z) { return z < big; });
+        if (!sizes.length) sizes = [big];
+        // 半分ずつ縮める（一度に縮めるとギザギザになって読めないことがある）
+        var shrink = function (target) {
+          var src = im, w = W, h = H;
+          while (Math.max(w, h) / 2 >= target) {
+            var c2 = document.createElement('canvas'); c2.width = Math.round(w / 2); c2.height = Math.round(h / 2);
+            var x2 = c2.getContext('2d'); x2.imageSmoothingEnabled = true; x2.imageSmoothingQuality = 'high'; x2.drawImage(src, 0, 0, c2.width, c2.height);
+            src = c2; w = c2.width; h = c2.height;
+          }
+          var k = target / Math.max(w, h), c = document.createElement('canvas');
+          c.width = Math.round(w * Math.min(1, k)); c.height = Math.round(h * Math.min(1, k));
+          var cx = c.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; cx.drawImage(src, 0, 0, c.width, c.height);
+          return { d: cx.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height };
+        };
+        for (var i = 0; i < sizes.length; i++) {
+          var g = shrink(sizes[i]);
+          var r = window.jsQR(g.d, g.w, g.h, { inversionAttempts: 'dontInvert' });
+          if (r && r.data) return r.data;
+        }
+        return null;
+      }).then(function (t) {
+        URL.revokeObjectURL(url);
+        if (t) return t;
+        return decodeImage(file).catch(function () {
+          throw new Error('QRを読み取れませんでした。QRが画面いっぱいに入るように、正面から撮り直してください（読めないときは、ふつうのカメラで読んだ文字をコピーして、上の欄に貼り付けて「決定」）');
+        });
+      });
+    });
+  }
   function decodeImage(file) {
     return loadZX().then(function () {
       var url = URL.createObjectURL(file);
@@ -4257,7 +4328,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (!t.getAttribute || !t.getAttribute('data-cam') || !t.files || !t.files[0]) return;
     var name = t.getAttribute('data-cam');
     loading(true);
-    decodeImage(t.files[0]).then(function (text) { loading(false); fireScan(name, text, false); })
+    (QR_SCREEN_SCANS.indexOf(name) >= 0 ? decodeQrImage : decodeImage)(t.files[0]).then(function (text) { loading(false); fireScan(name, text, false); })
       .catch(function (er) { loading(false); toast(er.message); })
       .then(function () { t.value = ''; });
   });
@@ -5410,7 +5481,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   function renderImp() {
     var d = impData || {};
     var bad = function (j) { return /廃棄|不合格/.test(String(j)); };
-    var html = '<div class="note">試験機のパソコンの表示アプリで「業務システム用QR」を出し、下の「カメラ」でQRを撮ってください。1回の測定（1台分の12ch）がまとめて入ります。同じQRを何度撮っても二重にはなりません。</div>';
+    var html = '<div class="note">試験機のパソコンの表示アプリで「業務システム用QR」を出し、下の「カメラ」でQRを撮ってください。1回の測定（1台分の12ch）がまとめて入ります。同じQRを何度撮っても二重にはなりません。<br>読めないときは、スマホのふつうのカメラでQRを読んで出た文字をコピーし、下の欄に貼り付けて「決定」でも入ります。</div>';
     html += scanBox('imp', 'QRを撮る（右の「カメラ」）');
     if (d.lines) {
       html += '<div class="h2">' + esc(d.machine) + '　' + esc(d.at) + ' に測定</div>';
