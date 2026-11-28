@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28e';
+  var SCREEN_VERSION = '2026-11-28f';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5390,6 +5390,13 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       var df = function (n) { return '<td class="' + (n > 0 ? 'up' : n < 0 ? 'down' : 'z') + '">' + (n > 0 ? '+' : '') + n + '</td>'; };
       html += '<tr class="sub"><td class="rk">前月比</td>' + ks.map(function (k) { return df(mo.cur[k] - mo.prev[k]); }).join('') + df(tc - tp) + '</tr></table>';
     }
+    html += '<div class="h2">検査の流れ（この順に。棚へは自動で入ります）</div><div class="btns">' +
+      '<a href="#/inv/in">① 入庫：ユニットを登録（戻りが届いた・仕入れが届いた）</a>' +
+      '<a href="#/inv/dis">② 分解：ユニットを選んで、モジュールのQRを1本ずつ読む</a>' +
+      '<a href="#/inv/dtest">③ 放電テストの結果（試験機の画面のQR）</a>' +
+      '<a href="#/inv/imp">④ インピーダンスの結果（試験機の画面のQR）</a>' +
+      '<a href="#/inv/cinsp" class="alt">ユニットごとの進み具合</a></div>' +
+      '<div class="note" style="margin:-4px 0 10px">②で読んだモジュールのQRで、試験の結果がユニットにひも付きます（試験機では、モジュールのQRだけ読めばよい）。不合格はすぐジャンク、ユニットの全部の結果がそろうと棚に入ります</div>';
     html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/plan">先にばらすユニット</a><a href="#/inv/junk" class="alt">ジャンク・ユニットの売却</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
     if (C && C.repairOrders.length) html += '<div class="meta" style="margin:-4px 0 8px">修理用の内訳：' + C.repairOrders.map(function (x) { return '<a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a> ' + x.n + '本'; }).join('・') + '</div>';
     if (C && C.recent.length) html += '<table class="t">' + C.recent.map(function (x) { return '<tr><td class="meta">' + esc(x.at) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + (x.key ? '<span class="meta">（' + esc(x.key) + '）</span>' : '') + '</td><td class="n">' + x.n + '</td></tr>'; }).join('') + '</table>';
@@ -6353,7 +6360,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (d.state !== '分解済み') html += '<div class="lbl2">モジュールのQRを読む（1本ずつ）</div>' + scanBox('dmod', 'モジュールのQR');
     html += '<div class="mlist">' + d.modules.slice().reverse().map(function (m) { return '<div class="m"><span>' + esc(m.qr) + '</span><span class="meta">' + esc(m.state) + '</span></div>'; }).join('') + '</div></div>';
     if (d.state !== '分解済み') html += '<label class="meta" style="display:block;margin:10px 0"><input type="checkbox" id="disDist"> ケースが歪んでいる（ジャンク用ケースにする）</label><button class="btn" data-disdone="1">分解完了</button>';
-    else html += '<div class="big-ok">分解完了。続けて「検査の登録」へ</div><div class="btns"><a href="#/inv/insp">検査の登録へ</a><a href="#/inv/dis" class="alt">ほかのユニット</a></div>';
+    else html += '<div class="big-ok">分解完了。読んだモジュールを放電テストへ</div><div class="note">放電試験機でモジュールのQRを読めば、結果はこのユニット（' + esc(d.unitNo) + '）にひも付きます。不合格はすぐジャンク、全部の結果がそろうと自動で棚に入ります</div><div class="btns"><a href="#/inv/dtest">③ 放電テストの結果へ</a><a href="#/inv/dis" class="alt">ほかのユニットを分解</a></div>';
     $('main').innerHTML = html;
   }
 
