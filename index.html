@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28h';
+  var SCREEN_VERSION = '2026-11-28i';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5396,7 +5396,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       '<a href="#/inv/dtest">③ 放電テストの結果（試験機の画面のQR）</a>' +
       '<a href="#/inv/imp">④ インピーダンスの結果（試験機の画面のQR）</a>' +
       '<a href="#/inv/cinsp" class="alt">ユニットごとの進み具合</a></div>' +
-      '<div class="note" style="margin:-4px 0 10px">②で読んだモジュールのQRで、試験の結果がユニットにひも付きます（試験機では、モジュールのQRだけ読めばよい）。不合格はすぐジャンク、ユニットの全部の結果がそろうと棚に入ります</div>';
+      '<div class="note" style="margin:-4px 0 10px">試験の結果は、モジュールのQRでユニットにひも付きます。放電試験のセットでユニット（箱）の番号を入れていれば、②でQRを読まなくてよい。先に試験してしまったときは、②のユニット（箱）の画面の「試験の結果から入れる」で。不合格はすぐジャンク、ユニットの全部の結果がそろうと棚に入ります</div>';
     html += '<div class="h2">本数で入れる</div><div class="btns two"><a href="#/inv/in">入庫（戻り・仕入れ）</a><a href="#/inv/cinsp">検査の結果（ユニットごと）</a><a href="#/inv/plan">先にばらすユニット</a><a href="#/inv/junk" class="alt">ジャンク・ユニットの売却</a><a href="#/inv/cadj" class="alt">本数を合わせる・出す</a><a href="#/inv/clog" class="alt">本数の動き</a></div>';
     if (C && C.repairOrders.length) html += '<div class="meta" style="margin:-4px 0 8px">修理用の内訳：' + C.repairOrders.map(function (x) { return '<a href="#/order/' + encodeURIComponent(x.key) + '">' + esc(x.no) + '</a> ' + x.n + '本'; }).join('・') + '</div>';
     if (C && C.recent.length) html += '<table class="t">' + C.recent.map(function (x) { return '<tr><td class="meta">' + esc(x.at) + '</td><td>' + esc(x.from) + ' → ' + esc(x.to) + (x.key ? '<span class="meta">（' + esc(x.key) + '）</span>' : '') + '</td><td class="n">' + x.n + '</td></tr>'; }).join('') + '</table>';
@@ -5886,6 +5886,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     html += scanBox('dtest', 'QRを読む（右の「かざす」か「撮る」）');
     if (d.lines) {
       html += '<div class="h2">' + esc(d.machine) + '　' + esc(d.at) + ' に試験</div>';
+      if (d.link) html += '<div class="panel" style="border:2px solid ' + (d.link.error ? '#F04438' : '#12B76A') + '">' + (d.link.error ? '⚠ ' + esc(d.link.error) : '✓ セットで読んだユニット：<b>' + esc(d.link.unit) + '</b>　' + esc(d.link.text || '')) + '</div>';
       html += '<table class="t"><tr><th>ch</th><th>モジュール</th><th>結果</th></tr>' + d.lines.map(function (l) {
         var c = color(l.verdict);
         return '<tr><td>' + l.ch + '</td><td>' + (l.qr ? esc(l.qr.length > 10 ? '…' + l.qr.slice(-8) : l.qr) : '<span class="meta">未登録</span>') +
@@ -6353,7 +6354,9 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
   var disLoose = {}; // バラの箱：番号 → 本数（分解の一覧で覚える）
+  var disPick = null, disPickRes = null; // 試験の結果から入れる（11/28〜）
   function openUnit(no) {
+    disPick = null; disPickRes = null;
     setNav('#/inv', '#/inv/dis');
     $('title').textContent = '分解 ' + no;
     loading(true);
@@ -6370,6 +6373,22 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     html += '<div class="panel"><span class="cnt">' + d.modules.length + (d.need ? ' / ' + d.need : boxN ? ' / ' + boxN : '') + '本</span>　<span class="meta">読んだモジュール</span>';
     if (d.state !== '分解済み' || loose) html += '<div class="lbl2">モジュールのQRを読む（1本ずつ）</div>' + scanBox('dmod', 'モジュールのQR');
     html += '<div class="mlist">' + d.modules.slice().reverse().map(function (m) { return '<div class="m"><span>' + esc(m.qr) + '</span><span class="meta">' + esc(m.state) + '</span></div>'; }).join('') + '</div></div>';
+    // 試験の結果から入れる（11/28〜）：試験機でQRを読んで試験したモジュールを、QRを読み直さずにこのユニット（箱）へ
+    if (d.state !== '検査済み') {
+      if (disPick && disPick.unit === d.unitNo) {
+        var L = disPick.list || [];
+        html += '<div class="panel" style="border:2px solid #2E90FA"><b>試験の結果から ' + esc(d.unitNo) + ' に入れる</b><div class="meta">まだユニットに入っていないモジュールがある試験です。このユニット（箱）のモジュールを試験したものを選んでください</div>' +
+          (L.length ? L.map(function (b) {
+            return '<label class="sgl" style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><input type="checkbox" data-dispk="' + esc(b.key) + '"' + (disPick.sel[b.key] ? ' checked' : '') + ' style="margin-top:4px">' +
+              '<span><b>' + esc(b.kind) + '</b>　' + esc(b.machine) + '　' + esc(b.at) + '　' + b.n + '本' + (b.free < b.n ? '（未登録 ' + b.free + '本）' : '') +
+              '<div class="meta">' + esc(b.sample) + (b.units ? '　登録ずみ：' + esc(b.units) : '') + '</div></span></label>';
+          }).join('') + '<div class="btns two" style="margin-top:8px"><button class="btn" data-dispkall="1">全部えらぶ</button><button class="btn" data-dispkgo="1">選んだ試験のモジュールを ' + esc(d.unitNo) + ' に入れる</button></div>'
+            : '<div class="empty">まだユニットに入っていないモジュールの試験はありません</div>') +
+          '<button class="btn sub" data-dispkclose="1">やめる</button></div>';
+      } else html += '<button class="btn sub" data-dispkopen="1">📋 試験の結果から、この' + (loose ? '箱' : 'ユニット') + 'に入れる（QRを読み直さない）</button>';
+    }
+    if (disPickRes && disPickRes.unitNo === d.unitNo) html += '<div class="panel" style="border:2px solid #12B76A"><b>' + esc(disPickRes.text || '') + '</b>' + (disPickRes.auto && disPickRes.auto.text ? '<div class="meta">' + esc(disPickRes.auto.text) + '</div>' : '') +
+      (disPickRes.auto && disPickRes.auto.notes && disPickRes.auto.notes.length ? '<div class="meta" style="color:#B54708">' + esc(disPickRes.auto.notes.join('／')) + '</div>' : '') + '</div>';
     if (loose) html += '<div class="note">バラの箱 ' + esc(d.unitNo) + '：箱の中のモジュールのQRを全部読んでください。放電テスト・インピーダンスを先にしていても大丈夫です（結果はQRでこの番号にひも付きます）</div>' +
       '<button class="btn" data-disloose="1">読み終わった（もう入っている試験の結果で、棚・ジャンクへ）</button><div id="disAuto"></div>';
     else if (d.state !== '分解済み') html += '<label class="meta" style="display:block;margin:10px 0"><input type="checkbox" id="disDist"> ケースが歪んでいる（ジャンク用ケースにする）</label><button class="btn" data-disdone="1">分解完了</button>';
@@ -6475,6 +6494,31 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       confirmSheet(isPend ? bid + '（到着待ち）を取り消しますか？' : bid + ' の仕入れを取り消しますか？（ユニットは「取消」になり、棚卸表の行も消えます。番号は戻りません）', '取り消す').then(function (ok) {
         if (!ok) return;
         call('invBuyCancel', { id: bid }).then(function (r) { buyList = r.list; buyPending = r.pending || []; toast(r.note); return invLoad(true).then(renderInbound); }).catch(function (er) { toast(er.message); });
+      });
+      return;
+    }
+    if ((t = e.target.closest('[data-dispkopen]'))) {
+      var pu = unitData.unitNo;
+      loading(true);
+      call('impTestsFree', {}).then(function (r) { disPick = { unit: pu, list: r.list || [], sel: {} }; disPickRes = null; renderUnit(); })
+        .catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+      return;
+    }
+    if ((t = e.target.closest('[data-dispk]'))) { if (disPick) disPick.sel[t.getAttribute('data-dispk')] = t.checked; return; }
+    if ((t = e.target.closest('[data-dispkall]'))) { if (disPick) { disPick.list.forEach(function (b) { disPick.sel[b.key] = true; }); renderUnit(); } return; }
+    if ((t = e.target.closest('[data-dispkclose]'))) { disPick = null; renderUnit(); return; }
+    if ((t = e.target.closest('[data-dispkgo]'))) {
+      if (!disPick) return;
+      var keys = Object.keys(disPick.sel).filter(function (k) { return disPick.sel[k]; });
+      if (!keys.length) { toast('試験を選んでください'); return; }
+      var nn = disPick.list.filter(function (b) { return disPick.sel[b.key]; }).reduce(function (a, b) { return a + b.free; }, 0);
+      var gu = disPick.unit;
+      confirmSheet('選んだ ' + keys.length + '回の試験のモジュール（未登録 ' + nn + '本）を ' + gu + ' のモジュールとして登録します。\nほかのユニットの試験がまざっていないか、もう一度確かめてください。\nよろしいですか？', '登録する').then(function (ok) {
+        if (!ok) return;
+        loading(true);
+        call('impAssignTests', { unitNo: gu, tests: keys }).then(function (r) {
+          disPick = null; disPickRes = r; unitData = r.view; renderUnit(); okToast(r.text || '登録しました');
+        }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       });
       return;
     }
