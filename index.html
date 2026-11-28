@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28i';
+  var SCREEN_VERSION = '2026-11-28j';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5563,6 +5563,31 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       if (location.hash === '#/inv/cinsp') renderCntInspect();
     });
   }
+  // 結果を手で入れる（11/28〜）：試験はしたのに、結果がそのモジュールにつながっていないとき
+  function ciManHtml() {
+    var M = ci.man;
+    if (!M || M.unitNo !== (ci.unit && ci.unit.unitNo)) return '<button class="btn sub" data-cimanopen="1">✍ 結果を手で入れる（試験はしたのに、結果がつながっていないとき）</button>';
+    var opt = function (list, kind) {
+      return '<option value="">' + (kind === 'dis' ? '放電テストの結果を選ぶ（QRが空の結果 ' + list.length + '件）' : 'インピーダンスの結果を選ぶ（QRが空の結果 ' + list.length + '件）') + '</option>' +
+        list.map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.machine + ' ' + x.at + ' ch' + x.ch + '：' + x.value + (x.judge ? '（' + x.judge + '）' : '')) + '</option>'; }).join('');
+    };
+    var tsel = function (i) { return '<select class="f" data-mq="' + i + '" data-mk="type"><option value="">種類</option>' + M.types.map(function (g) { return '<option>' + g + '</option>'; }).join('') + '</select>'; };
+    var inp = function (i, k, ph) { return '<input class="f" data-mq="' + i + '" data-mk="' + k + '" placeholder="' + ph + '" inputmode="decimal" style="min-width:0;flex:1">'; };
+    var h = '<div class="panel" style="border:2px solid #F79009;background:#FFFAEB"><b>✍ 結果を手で入れる</b>' +
+      '<div class="meta">まず、QRが空の結果（試験機でそのchのQRが読めなかったもの）から選んでください（値を打たないので確実）。ないときだけ、試験機の画面・シールの値を打ちます。入れた人の名前が残ります</div>';
+    h += M.waiting.map(function (w, i) {
+      var r = '<div class="crow" data-mqrow="' + i + '" data-qr="' + esc(w.full) + '"><b>' + esc(w.qr) + '</b><div class="meta">' + esc(w.why) + '</div>';
+      if (w.need === 'dis') r += '<div class="lbl2">放電テスト</div><select class="f" data-mq="' + i + '" data-mk="disId">' + opt(M.free.dis, 'dis') + '</select>' +
+        '<div style="display:flex;gap:6px;margin-top:4px">' + inp(i, 'score', 'または 点数（例 58.2）') + tsel(i) + '</div>';
+      else if (w.need === 'type') r += '<div class="lbl2">種類</div>' + tsel(i);
+      if (w.need === 'dis' || w.need === 'imp') r += '<div class="lbl2">インピーダンス</div><select class="f" data-mq="' + i + '" data-mk="impId">' + opt(M.free.imp, 'imp') + '</select>' +
+        '<div style="display:flex;gap:6px;margin-top:4px">' + inp(i, 'pl', 'または 上がり始め') + inp(i, 'fi', '最終到達点') + '</div>' +
+        '<input class="f" data-mq="' + i + '" data-mk="jg" placeholder="値がわからなければ 判定だけ（例 21B+・廃棄）" style="margin-top:4px">';
+      return r + '</div>';
+    }).join('');
+    h += '<button class="btn" data-cimansave="1">入れる（そのあと自動で棚・ジャンクへ）</button><button class="btn sub" data-cimanclose="1">やめる</button></div>';
+    return h;
+  }
   function ciAutoHtml() {
     var d = ci.auto;
     if (!d.read) return '<div class="note">' + esc(d.notes.join('／')) + '</div>';
@@ -5583,6 +5608,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     if (d.junkList && d.junkList.length) h += '<div class="meta">ジャンク：' + esc(d.junkList.slice(0, 12).join('・')) + (d.junkList.length > 12 ? ' ほか' : '') + '</div>';
     h += '</div>';
     var boss = me && (me.role === '店長' || me.role === '管理者');
+    if (!d.done && (d.pending.length || d.recheck.length)) h += ciManHtml();
     if (!d.done && (d.pending.length || d.recheck.length) && boss) h += '<button class="btn sub" data-ciforce="1">結果を待たずに、そろった分だけ棚に入れる（店長・管理者）</button><div class="note">測り直せないモジュール（なくした・こわれた）があるときだけ使います。待っている ' + (d.pending.length + d.recheck.length) + '本は未計測に残ります</div>';
     h += '<button class="btn sub" data-ciautoback="1">ユニットの一覧に戻る</button>';
     return h;
@@ -5942,7 +5968,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       if ((t = e.target.closest('[data-ciu]'))) {
         var no = t.getAttribute('data-ciu');
         ci.unit = ci.data.units.filter(function (u) { return u.unitNo === no; })[0]; ci.bara = false; ci.last = null;
-        ci.src = ci.unit.src || (ci.unit.type === 'G3' ? '未計測/G3' : ci.unit.type ? '未計測/G2' : ''); ci.grade = ci.unit.type || ''; ci.rows = null; ci.auto = null; renderCntInspect(); window.scrollTo(0, 0); ciAutoLoad(); return;
+        ci.src = ci.unit.src || (ci.unit.type === 'G3' ? '未計測/G3' : ci.unit.type ? '未計測/G2' : ''); ci.grade = ci.unit.type || ''; ci.rows = null; ci.auto = null; ci.man = null; renderCntInspect(); window.scrollTo(0, 0); ciAutoLoad(); return;
       }
       if ((t = e.target.closest('[data-cibara]'))) { ci.unit = null; ci.bara = true; ci.src = ''; ci.grade = ''; ci.last = null; ci.rows = null; renderCntInspect(); return; }
       if ((t = e.target.closest('[data-ciresale]'))) {
@@ -5955,6 +5981,35 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
         return;
       }
       if ((t = e.target.closest('[data-ciback]'))) { ci.unit = null; ci.bara = false; ci.rows = null; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-cimanopen]'))) {
+        var mu = ci.unit; if (!mu) return;
+        loading(true);
+        call('impManualView', { unitNo: mu.unitNo }).then(function (d) { ci.man = d; renderCntInspect(); }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        return;
+      }
+      if ((t = e.target.closest('[data-cimanclose]'))) { ci.man = null; renderCntInspect(); return; }
+      if ((t = e.target.closest('[data-cimansave]'))) {
+        var su = ci.unit; if (!su || !ci.man) return;
+        var items = [];
+        Array.prototype.forEach.call(document.querySelectorAll('[data-mqrow]'), function (row) {
+          var i = row.getAttribute('data-mqrow'), g = function (k) { var el = row.querySelector('[data-mk="' + k + '"]'); return el ? String(el.value || '').trim() : ''; };
+          var it = { qr: row.getAttribute('data-qr'), type: g('type') };
+          if (g('disId')) it.disId = g('disId'); else if (g('score')) it.dis = { score: g('score'), type: g('type') };
+          if (g('impId')) it.impId = g('impId'); else if (g('pl') || g('fi')) it.imp = { plateau: g('pl'), final: g('fi') }; else if (g('jg')) it.impJudge = g('jg');
+          if (it.disId || it.dis || it.impId || it.imp || it.impJudge || it.type) items.push(it);
+        });
+        if (!items.length) { toast('入れる結果がありません'); return; }
+        confirmSheet(su.unitNo + '：' + items.length + '本の結果を入れます。入れた人として ' + ((me && me.name) || '') + ' さんの名前が残ります。よろしいですか？', '入れる').then(function (ok) {
+          if (!ok) return;
+          loading(true);
+          call('impManualSave', { unitNo: su.unitNo, items: items }).then(function (r) {
+            ci.man = null; ci.auto = r.plan; renderCntInspect();
+            okToast(r.done.length + '本を入れました' + (r.auto && r.auto.text ? '。' + r.auto.text : ''));
+            if (r.errs && r.errs.length) toast(r.errs.join('／'));
+          }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
+        });
+        return;
+      }
       if ((t = e.target.closest('[data-ciautoback]'))) { ci.unit = null; ci.auto = null; ci.rows = null; openCntInspect(); return; }
       if ((t = e.target.closest('[data-ciforce]'))) {
         var fu = ci.unit; if (!fu || !ci.auto) return;
