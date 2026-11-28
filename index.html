@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28f';
+  var SCREEN_VERSION = '2026-11-28g';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -6469,7 +6469,16 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       var dist = $('disDist') && $('disDist').checked;
       confirmSheet(unitData.unitNo + ' の分解を完了にしますか？（読んだモジュール ' + unitData.modules.length + '本）', '完了にする').then(function (ok) {
         if (!ok) return;
-        call('invDisassembleDone', { unitNo: unitData.unitNo, distorted: dist }).then(function (d) { unitData = d; renderUnit(); }).catch(function (er) { toast(er.message); });
+        call('invDisassembleDone', { unitNo: unitData.unitNo, distorted: dist }).then(function (d) {
+          unitData = d; renderUnit();
+          // 分解の前に試験したモジュールがあれば、その結果で自動で棚・ジャンクへ（11/28〜）
+          var un = d.unitNo;
+          call('impUnitPlan', { unitNo: un }).then(function (p) {
+            var done = p.filed + p.junk;
+            if (!done && !p.done) return;
+            okToast(un + '：もう入っていた試験の結果で ' + (p.done ? '棚に入れました（棚 ' + p.filed + '本・ジャンク ' + p.junk + '本）' : 'ジャンク ' + p.junk + '本を入れました'));
+          }).catch(function () { /* 結果がなくても分解はできている */ });
+        }).catch(function (er) { toast(er.message); });
       });
       return;
     }
