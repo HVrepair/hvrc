@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28g';
+  var SCREEN_VERSION = '2026-11-28h';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -5392,7 +5392,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     }
     html += '<div class="h2">検査の流れ（この順に。棚へは自動で入ります）</div><div class="btns">' +
       '<a href="#/inv/in">① 入庫：ユニットを登録（戻りが届いた・仕入れが届いた）</a>' +
-      '<a href="#/inv/dis">② 分解：ユニットを選んで、モジュールのQRを1本ずつ読む</a>' +
+      '<a href="#/inv/dis">② 分解：ユニット（バラは箱の番号）を選んで、モジュールのQRを1本ずつ読む</a>' +
       '<a href="#/inv/dtest">③ 放電テストの結果（試験機の画面のQR）</a>' +
       '<a href="#/inv/imp">④ インピーダンスの結果（試験機の画面のQR）</a>' +
       '<a href="#/inv/cinsp" class="alt">ユニットごとの進み具合</a></div>' +
@@ -6337,12 +6337,22 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     setNav('#/inv', '#/inv');
     $('title').textContent = '分解するユニットを選ぶ';
     loading(true);
-    invLoad(true).then(function (d) {
-      $('main').innerHTML = '<div class="lbl2">分解待ちのユニット（入庫したもの）</div>' + (d.measure.length ? d.measure.map(function (u) {
+    Promise.all([invLoad(true), call('cntInspectView').catch(function () { return { units: [] }; })]).then(function (rs) {
+      var d = rs[0], iv = rs[1] || { units: [] };
+      var html = '<div class="lbl2">分解待ちのユニット（入庫したもの）</div>' + (d.measure.length ? d.measure.map(function (u) {
         return '<a class="card tap" style="display:block;color:inherit;text-decoration:none" href="#/inv/dis/' + encodeURIComponent(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.at) + '</span></div><div class="meta">' + esc(u.kind) + '　' + esc(u.model) + '</div></a>';
       }).join('') : '<div class="empty">分解待ちのユニットはありません（先に「入庫」）</div>');
+      // バラのモジュールの箱（11/28〜）：ばらす作業はないが、モジュールのQRはここで読む（試験の結果をこの番号にひも付けるため）
+      var loose = (iv.units || []).filter(function (u) { return u.model === 'バラ'; });
+      disLoose = {};
+      loose.forEach(function (u) { disLoose[u.unitNo] = u.n || 0; });
+      if (loose.length) html += '<div class="lbl2" style="margin-top:14px">バラのモジュールの箱（箱の番号を選んで、モジュールのQRを読む）</div>' + loose.map(function (u) {
+        return '<a class="card tap" style="display:block;color:inherit;text-decoration:none" href="#/inv/dis/' + encodeURIComponent(u.unitNo) + '"><div class="row1"><span class="no">' + esc(u.unitNo) + '</span><span class="date">' + esc(u.since || '') + '</span></div><div class="meta">バラ ' + (u.n || '') + '本　' + esc(u.kind || '') + '</div></a>';
+      }).join('');
+      $('main').innerHTML = html;
     }).catch(function (e) { toast(e.message); }).then(function () { loading(false); });
   }
+  var disLoose = {}; // バラの箱：番号 → 本数（分解の一覧で覚える）
   function openUnit(no) {
     setNav('#/inv', '#/inv/dis');
     $('title').textContent = '分解 ' + no;
@@ -6356,10 +6366,13 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
     var d = unitData;
     var html = '<div class="head"><div class="big">' + esc(d.unitNo) + '</div><div class="meta">' + esc([d.kind, d.model, d.case ? 'ケース ' + d.case : ''].filter(Boolean).join('・')) + '</div>' +
       '<div class="chips"><span class="chip state">' + esc(d.state) + '</span></div></div>';
-    html += '<div class="panel"><span class="cnt">' + d.modules.length + (d.need ? ' / ' + d.need : '') + '本</span>　<span class="meta">読んだモジュール</span>';
-    if (d.state !== '分解済み') html += '<div class="lbl2">モジュールのQRを読む（1本ずつ）</div>' + scanBox('dmod', 'モジュールのQR');
+    var loose = d.model === 'バラ', boxN = loose ? (disLoose[d.unitNo] || 0) : 0;
+    html += '<div class="panel"><span class="cnt">' + d.modules.length + (d.need ? ' / ' + d.need : boxN ? ' / ' + boxN : '') + '本</span>　<span class="meta">読んだモジュール</span>';
+    if (d.state !== '分解済み' || loose) html += '<div class="lbl2">モジュールのQRを読む（1本ずつ）</div>' + scanBox('dmod', 'モジュールのQR');
     html += '<div class="mlist">' + d.modules.slice().reverse().map(function (m) { return '<div class="m"><span>' + esc(m.qr) + '</span><span class="meta">' + esc(m.state) + '</span></div>'; }).join('') + '</div></div>';
-    if (d.state !== '分解済み') html += '<label class="meta" style="display:block;margin:10px 0"><input type="checkbox" id="disDist"> ケースが歪んでいる（ジャンク用ケースにする）</label><button class="btn" data-disdone="1">分解完了</button>';
+    if (loose) html += '<div class="note">バラの箱 ' + esc(d.unitNo) + '：箱の中のモジュールのQRを全部読んでください。放電テスト・インピーダンスを先にしていても大丈夫です（結果はQRでこの番号にひも付きます）</div>' +
+      '<button class="btn" data-disloose="1">読み終わった（もう入っている試験の結果で、棚・ジャンクへ）</button><div id="disAuto"></div>';
+    else if (d.state !== '分解済み') html += '<label class="meta" style="display:block;margin:10px 0"><input type="checkbox" id="disDist"> ケースが歪んでいる（ジャンク用ケースにする）</label><button class="btn" data-disdone="1">分解完了</button>';
     else html += '<div class="big-ok">分解完了。読んだモジュールを放電テストへ</div><div class="note">放電試験機でモジュールのQRを読めば、結果はこのユニット（' + esc(d.unitNo) + '）にひも付きます。不合格はすぐジャンク、全部の結果がそろうと自動で棚に入ります</div><div class="btns"><a href="#/inv/dtest">③ 放電テストの結果へ</a><a href="#/inv/dis" class="alt">ほかのユニットを分解</a></div>';
     $('main').innerHTML = html;
   }
@@ -6463,6 +6476,20 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
         if (!ok) return;
         call('invBuyCancel', { id: bid }).then(function (r) { buyList = r.list; buyPending = r.pending || []; toast(r.note); return invLoad(true).then(renderInbound); }).catch(function (er) { toast(er.message); });
       });
+      return;
+    }
+    if ((t = e.target.closest('[data-disloose]'))) {
+      var lu = unitData.unitNo;
+      loading(true);
+      call('impUnitPlan', { unitNo: lu }).then(function (p) {
+        var box = $('disAuto'); if (!box) return;
+        var rows = (p.rows || []).map(function (r) { return (r.w === '半年' ? '半年用' : r.w + '用') + ' ' + r.grade + ' ' + r.rank + ' ' + r.n + '本'; }).join('／');
+        box.innerHTML = '<div class="panel" style="border:2px solid ' + (p.done ? '#12B76A' : '#2E90FA') + '">' +
+          (p.done ? '<b>✓ 棚に入れました</b>（棚 ' + p.filed + '本・ジャンク ' + p.junk + '本）' : '<b>ジャンク ' + p.junk + '本を入れました。</b>残りは結果がそろうと自動で棚に入ります') +
+          '<div class="meta">読んだ ' + p.read + '本：結果待ち ' + p.pending.length + '本' + (p.recheck.length ? '・測り直し ' + p.recheck.length + '本' : '') + (!p.done && rows ? '・そろったら入る棚：' + esc(rows) : '') + '</div>' +
+          (p.notes && p.notes.length ? '<div class="meta" style="color:#B54708">' + esc(p.notes.join('／')) + '</div>' : '') +
+          '<div class="btns" style="margin-top:6px"><a href="#/inv/cinsp">ユニットごとの進み具合</a></div></div>';
+      }).catch(function (er) { toast(er.message); }).then(function () { loading(false); });
       return;
     }
     if ((t = e.target.closest('[data-disdone]'))) {
