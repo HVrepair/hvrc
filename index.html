@@ -460,7 +460,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   var TOKEN_KEY = 'hvrc_token';
   var APP_VERSION = '';
   // この画面（index.html）の版。Code.gs の HV_VERSION と同じにして配る。サーバーのほうが新しければ注意を出す
-  var SCREEN_VERSION = '2026-11-28c';
+  var SCREEN_VERSION = '2026-11-28d';
   var NEED_SCREEN = ''; // サーバーが求める画面の版（古いサーバーは送ってこないので、そのときはサーバーの版と比べる）
   var API_URL = String(window.HV_API_URL || '').trim();
   var IN_GAS = !!(window.google && google.script && google.script.run);
@@ -2637,7 +2637,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
   function bizSignLoad(k) {
     if (!k || bizSign[k]) return;
     bizSign[k] = { loading: true };
-    call('photoSignGet', { key: k }).then(function (r) { bizSign[k] = r; if (current && current.key === k) renderOrder(false); })
+    call('photoList', { op: 'signGet', key: k }).then(function (r) { bizSign[k] = r; if (current && current.key === k) renderOrder(false); })
       .catch(function (e) { bizSign[k] = { err: e.message }; if (current && current.key === k) renderOrder(false); });
   }
   function bizSignHtml(d) {
@@ -2691,7 +2691,7 @@ window.HV_EN = {"HVRC業務": "HVRC Work", "名前": "Name", "ログイン": "Lo
       var sig = out.toDataURL('image/png');
       close();
       loading(true, 'サインを PDF にして Dropbox に入れています…');
-      call('photoSignSave', { key: k, signer: name, company: co, sig: sig }).then(function (r) {
+      call('photoUpload', { op: 'signSave', key: k, signer: name, company: co, sig: sig }).then(function (r) {
         loading(false);
         bizSign[k] = r;
         okToast('注意事項のサインを Dropbox に入れました（' + name + ' 様）');
